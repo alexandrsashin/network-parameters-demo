@@ -94,8 +94,20 @@ const PARTIAL_LIST = `^\\s*${SINGLE_PARTIAL}(\\s*,\\s*${SINGLE_PARTIAL})*(\\s*,\
 
 const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
-const reIpv4FullOnly = new RegExp(`^${IPV4_FULL}$`);
-const reIpv6FullOnly = new RegExp(`^${IPV6_FULL}$`);
+
+// Атомарные Zod-схемы для *полных* IPv4/IPv6-токенов.
+// Используем их внутри partial-логики вместо ручных regex-ов,
+// не меняя общую структуру проверок.
+const Ipv4TokenSchema = z.ipv4();
+const Ipv6TokenSchema = z.ipv6();
+
+function isFullIpv4Token(value: string): boolean {
+  return Ipv4TokenSchema.safeParse(value).success;
+}
+
+function isFullIpv6Token(value: string): boolean {
+  return Ipv6TokenSchema.safeParse(value).success;
+}
 
 function ipv4ToNumber(ip: string): number {
   const parts = ip.split(".").map((p) => Number.parseInt(p, 10));
@@ -111,7 +123,7 @@ function hasTrailingDotAfterFullIpv4(value: string): boolean {
       if (!t) continue;
       if (t.endsWith(".")) {
         const prefix = t.slice(0, -1).trim();
-        if (reIpv4FullOnly.test(prefix)) {
+        if (isFullIpv4Token(prefix)) {
           return true;
         }
       }
@@ -148,8 +160,8 @@ function isIpPartialAllowed(value: string): boolean {
     if (left && right) {
       const dotsLeft = (left.match(/\./g) || []).length;
       const dotsRight = (right.match(/\./g) || []).length;
-      const leftFull = reIpv4FullOnly.test(left);
-      const rightFull = reIpv4FullOnly.test(right);
+      const leftFull = isFullIpv4Token(left);
+      const rightFull = isFullIpv4Token(right);
 
       if (
         (leftFull && !rightFull && dotsRight > 0 && dotsRight < 3) ||
@@ -262,7 +274,7 @@ function isIpPartialAllowed(value: string): boolean {
       const ipPart = cidrParts[0].trim();
       const maskPart = cidrParts[1].trim();
       if (!maskPart) continue;
-      if (!reIpv4FullOnly.test(ipPart)) continue;
+      if (!isFullIpv4Token(ipPart)) continue;
 
       const mask = Number.parseInt(maskPart, 10);
       if (Number.isFinite(mask) && mask > 32) {
@@ -282,7 +294,7 @@ function isIpPartialAllowed(value: string): boolean {
       const ipPart = cidrParts[0].trim();
       const maskPart = cidrParts[1].trim();
       if (!maskPart) continue;
-      if (!reIpv6FullOnly.test(ipPart)) continue;
+      if (!isFullIpv6Token(ipPart)) continue;
 
       const mask = Number.parseInt(maskPart, 10);
       if (Number.isFinite(mask) && mask > 128) {
@@ -302,7 +314,7 @@ function isIpPartialAllowed(value: string): boolean {
     const right = rangeParts[1].trim();
     if (!left || !right) continue;
 
-    if (reIpv4FullOnly.test(left) && reIpv4FullOnly.test(right)) {
+    if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
       const start = ipv4ToNumber(left);
       const end = ipv4ToNumber(right);
       if (start > end) {
@@ -395,7 +407,7 @@ const IpFullSchema = z
       const left = leftRaw.trim();
       const right = rightRaw.trim();
 
-      if (reIpv4FullOnly.test(left) && reIpv4FullOnly.test(right)) {
+      if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
         const start = ipv4ToNumber(left);
         const end = ipv4ToNumber(right);
         if (start > end) {
@@ -472,6 +484,11 @@ const HEX2_RE = /^[0-9a-fA-F]{2}$/;
 // регулярка для одного или двух шестнадцатеричных символов
 const HEX1_2_RE = /^[0-9a-fA-F]{1,2}$/;
 
+// Атомарная Zod-схема полного MAC-токена.
+// Используем её внутри полной MAC-валидации, не меняя контракт
+// partial-логики и сообщений об ошибках.
+const MacTokenSchema = z.mac();
+
 // Полный одиночный MAC: XX-XX-XX-XX-XX-XX
 const SingleMacFullSchema = z
   .string()
@@ -481,7 +498,19 @@ const SingleMacFullSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Пустой MAC" });
       return;
     }
+    // Сначала проверяем, что строка вообще считается валидным MAC
+    // с точки зрения z.mac(). Если нет — сразу ошибка.
+    if (!MacTokenSchema.safeParse(t).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Некорректный MAC",
+      });
+      return;
+    }
 
+    // Затем сохраняем прежнее структурное ограничение: строго 6 сегментов
+    // формата XX-XX-XX-XX-XX-XX, чтобы не расширять формат относительно
+    // существующих тестов.
     const parts = t.split("-");
     if (parts.length !== 6 || !parts.every((p) => HEX2_RE.test(p))) {
       ctx.addIssue({
