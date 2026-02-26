@@ -50,8 +50,10 @@ const CIDR_SUFFIX_V6 = `/(12[0-8]|1[01]\\d|\\d{1,2})`;
 const IPV4_CIDR_FULL = `${IPV4_FULL}${CIDR_SUFFIX_V4}`;
 const IPV6_CIDR_FULL = `${IPV6_FULL}${CIDR_SUFFIX_V6}`;
 
-/** Частичный CIDR: IP + необязательный / и цифры */
-const IPV4_CIDR_PARTIAL = `${IPV4_PARTIAL}(/[0-9]{0,2})?`;
+/** Частичный IPv4 CIDR: допускаем маску только после *полного* IPv4.
+ *  Например, разрешаем "10.0.0.0/", "10.0.0.0/2", но не "192.168.1/24".
+ */
+const IPV4_CIDR_PARTIAL = `${IPV4_FULL}(/[0-9]{0,2})?`;
 const IPV6_CIDR_PARTIAL = `${IPV6_PARTIAL}(/[0-9]{0,3})?`;
 
 // ==================== Range (через дефис) ====================
@@ -93,6 +95,12 @@ const PARTIAL_LIST = `^\\s*${SINGLE_PARTIAL}(\\s*,\\s*${SINGLE_PARTIAL})*(\\s*,\
 const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
 const reIpv4FullOnly = new RegExp(`^${IPV4_FULL}$`);
+const reIpv6FullOnly = new RegExp(`^${IPV6_FULL}$`);
+
+function ipv4ToNumber(ip: string): number {
+  const parts = ip.split(".").map((p) => Number.parseInt(p, 10));
+  return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3];
+}
 
 function hasTrailingDotAfterFullIpv4(value: string): boolean {
   const items = value.split(",");
@@ -118,6 +126,127 @@ function isIpPartialAllowed(value: string): boolean {
 
   if (hasTrailingDotAfterFullIpv4(value)) return false;
 
+  // Не допускаем диапазоны, где левая часть заканчивается точкой,
+  // а правая уже содержит какой-то ввод, например "192.168.1.-1".
+  const items = value.split(",");
+  for (const item of items) {
+    const dashIndex = item.indexOf("-");
+    if (dashIndex === -1) continue;
+
+    const left = item.slice(0, dashIndex).trim();
+    const right = item.slice(dashIndex + 1).trim();
+
+    // Не допускаем ситуацию, когда левая часть диапазона заканчивается точкой,
+    // независимо от того, есть ли правая часть ("192.168.1.-" или "192.168.1.-1").
+    if (left.endsWith(".")) {
+      return false;
+    }
+  }
+
+  // Не допускаем тройное двоеточие в IPv6 даже при частичном вводе.
+  if (value.includes(":::")) return false;
+
+  // Не допускаем более одного "::" в одном IPv6-адресе, но при этом
+  // разрешаем диапазоны и списки, где каждый адрес по отдельности
+  // содержит не более одного сжатия (::1-2001:db8::1, ::1, 2001:db8::1).
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    for (const rangePart of rangeParts) {
+      const cidrParts = rangePart.split("/");
+      for (const part of cidrParts) {
+        const t = part.trim();
+        if (!t) continue;
+        // IPv6-специфичные проверки применяем только к токенам с двоеточиями.
+        if (!t.includes(":")) {
+          continue;
+        }
+
+        // Любая IPv6-группа не должна содержать более 4 hex-символов.
+        const groups = t.split(":");
+        if (groups.some((g) => g.length > 4)) {
+          return false;
+        }
+
+        const matches = t.match(/::/g);
+        // Больше одного "::" — некорректно (например, 2001:db8::1::1)
+        if (matches && matches.length > 1) {
+          return false;
+        }
+
+        // Специально отсеиваем случаи без "::" с заведомо некорректным
+        // количеством полно заполненных групп:
+        // - 7 полных групп (2001:db8:1:2:3:4:5)
+        // - больше 8 полных групп (2001:db8:1:2:3:4:5:6:7)
+        if (!matches || matches.length === 0) {
+          const nonEmpty = groups.filter((g) => g.length > 0).length;
+          if (nonEmpty === 7 || nonEmpty > 8) {
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  // Специальная проверка IPv4 CIDR: если маска > 32 и IPv4-часть полная,
+  // то даже частичный ввод считаем недопустимым (192.168.1.1/33 и т.п.).
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    for (const rangePart of rangeParts) {
+      const cidrParts = rangePart.split("/");
+      if (cidrParts.length < 2) continue;
+
+      const ipPart = cidrParts[0].trim();
+      const maskPart = cidrParts[1].trim();
+      if (!maskPart) continue;
+      if (!reIpv4FullOnly.test(ipPart)) continue;
+
+      const mask = Number.parseInt(maskPart, 10);
+      if (Number.isFinite(mask) && mask > 32) {
+        return false;
+      }
+    }
+  }
+
+  // Специальная проверка IPv6 CIDR: если маска > 128 и IPv6-часть полная,
+  // то даже частичный ввод считаем недопустимым (2001:db8::/129 и т.п.).
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    for (const rangePart of rangeParts) {
+      const cidrParts = rangePart.split("/");
+      if (cidrParts.length < 2) continue;
+
+      const ipPart = cidrParts[0].trim();
+      const maskPart = cidrParts[1].trim();
+      if (!maskPart) continue;
+      if (!reIpv6FullOnly.test(ipPart)) continue;
+
+      const mask = Number.parseInt(maskPart, 10);
+      if (Number.isFinite(mask) && mask > 128) {
+        return false;
+      }
+    }
+  }
+
+  // Специальная проверка IPv4 диапазона: если обе части — полные IPv4 и
+  // начало диапазона больше конца, такой диапазон считаем недопустимым
+  // даже при частичном вводе.
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    if (rangeParts.length !== 2) continue;
+
+    const left = rangeParts[0].trim();
+    const right = rangeParts[1].trim();
+    if (!left || !right) continue;
+
+    if (reIpv4FullOnly.test(left) && reIpv4FullOnly.test(right)) {
+      const start = ipv4ToNumber(left);
+      const end = ipv4ToNumber(right);
+      if (start > end) {
+        return false;
+      }
+    }
+  }
+
   // Базовая проверка по regex
   if (reIpPartial.test(value)) return true;
 
@@ -140,11 +269,41 @@ const IpFullSchema = z
   .transform((v) => v.trim())
   .superRefine((value, ctx) => {
     if (!value) return; // пустая строка валидна на уровне обёртки
-    if (!reIpFull.test(value)) {
+
+    const hasFullMatch = reIpFull.test(value);
+    const hasTripleColon = value.includes(":::");
+
+    if (!hasFullMatch || hasTripleColon) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Неверный IP-адрес",
       });
+      return;
+    }
+
+    // Дополнительная семантическая проверка для IPv4-диапазонов:
+    // начало не должно быть больше конца (по числовому сравнению октетов).
+    const items = value.split(",");
+    for (const raw of items) {
+      const token = raw.trim();
+      if (!token.includes("-")) continue;
+
+      const [leftRaw, rightRaw] = token.split("-");
+      if (!leftRaw || !rightRaw) continue;
+      const left = leftRaw.trim();
+      const right = rightRaw.trim();
+
+      if (reIpv4FullOnly.test(left) && reIpv4FullOnly.test(right)) {
+        const start = ipv4ToNumber(left);
+        const end = ipv4ToNumber(right);
+        if (start > end) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Начало диапазона IPv4 больше конца",
+          });
+          return;
+        }
+      }
     }
   });
 

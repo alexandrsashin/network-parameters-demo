@@ -16,12 +16,10 @@ describe("isIpValid", () => {
   });
 
   describe("IPv4", () => {
-    it.each([
-      "0.0.0.0",
-      "192.168.1.1",
-      "255.255.255.255",
-      "10.0.0.1",
-    ])("принимает %s", (v) => expect(isIpValid(v)).toBe(true));
+    it.each(["0.0.0.0", "192.168.1.1", "255.255.255.255", "10.0.0.1"])(
+      "принимает %s",
+      (v) => expect(isIpValid(v)).toBe(true),
+    );
 
     it.each([
       "256.0.0.1",
@@ -41,10 +39,15 @@ describe("isIpValid", () => {
       "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
     ])("принимает %s", (v) => expect(isIpValid(v)).toBe(true));
 
-    it.each(["gggg::1", "12345::1"])(
-      "отклоняет %s",
-      (v) => expect(isIpValid(v)).toBe(false),
-    );
+    it.each([
+      "gggg::1",
+      "12345::1",
+      "2001:db8:::1",
+      "2001:db8::1::1",
+      "2001:db8:1:2:3:4:5",
+      "2001:db8:1:2:3:4:5:6:7",
+      "2001:db8:00000:1::1",
+    ])("отклоняет %s", (v) => expect(isIpValid(v)).toBe(false));
   });
 
   describe("CIDR", () => {
@@ -55,7 +58,7 @@ describe("isIpValid", () => {
       "255.255.255.255/32",
     ])("IPv4 CIDR: принимает %s", (v) => expect(isIpValid(v)).toBe(true));
 
-    it.each(["10.0.0.0/33", "10.0.0.0/"])(
+    it.each(["10.0.0.0/33", "10.0.0.0/", "192.168.1.1/33", "192.168.1/24"])(
       "IPv4 CIDR: отклоняет %s",
       (v) => expect(isIpValid(v)).toBe(false),
     );
@@ -65,21 +68,23 @@ describe("isIpValid", () => {
       (v) => expect(isIpValid(v)).toBe(true),
     );
 
-    it.each(["::1/129"])(
-      "IPv6 CIDR: отклоняет %s",
-      (v) => expect(isIpValid(v)).toBe(false),
+    it.each(["::1/129", "2001:db8::/129"])("IPv6 CIDR: отклоняет %s", (v) =>
+      expect(isIpValid(v)).toBe(false),
     );
   });
 
   describe("Диапазон (через дефис)", () => {
-    it.each([
-      "192.168.1.1-192.168.1.10",
-      "10.0.0.1 - 10.0.0.255",
-    ])("IPv4 range: принимает %s", (v) => expect(isIpValid(v)).toBe(true));
-
-    it.each(["::1-::ffff"])(
-      "IPv6 range: принимает %s",
+    it.each(["192.168.1.1-192.168.1.10", "10.0.0.1 - 10.0.0.255"])(
+      "IPv4 range: принимает %s",
       (v) => expect(isIpValid(v)).toBe(true),
+    );
+
+    it("IPv4 range: отклоняет, если начало больше конца", () => {
+      expect(isIpValid("192.168.1.10-192.168.1.2")).toBe(false);
+    });
+
+    it.each(["::1-::ffff"])("IPv6 range: принимает %s", (v) =>
+      expect(isIpValid(v)).toBe(true),
     );
   });
 
@@ -133,10 +138,47 @@ describe("isIpPartiallyValid", () => {
     expect(isIpPartiallyValid(v)).toBe("");
   });
 
-  it.each(["abc", "zzz.zzz"])(
-    "отклоняет явно некорректный: %s",
-    (v) => expect(isIpPartiallyValid(v)).not.toBe(""),
+  it.each(["abc", "zzz.zzz"])("отклоняет явно некорректный: %s", (v) =>
+    expect(isIpPartiallyValid(v)).not.toBe(""),
   );
+
+  it("отклоняет IPv4 CIDR с маской больше 32", () => {
+    expect(isIpPartiallyValid("192.168.1.1/33")).not.toBe("");
+  });
+
+  it("отклоняет IPv6 CIDR с маской больше 128", () => {
+    expect(isIpPartiallyValid("2001:db8::/129")).not.toBe("");
+  });
+
+  it("отклоняет IPv4 CIDR с неполным адресом", () => {
+    expect(isIpPartiallyValid("192.168.1/24")).not.toBe("");
+  });
+
+  it.each([
+    "2001:db8:::1",
+    "2001:db8::1::1",
+    "2001:db8:1:2:3:4:5",
+    "2001:db8:1:2:3:4:5:6:7",
+    "2001:db8:00000:1::1",
+  ])("отклоняет явно некорректный IPv6: %s", (v) =>
+    expect(isIpPartiallyValid(v)).not.toBe(""),
+  );
+
+  it("отклоняет некорректный диапазон с точкой перед дефисом", () => {
+    expect(isIpPartiallyValid("192.168.1.-1")).not.toBe("");
+  });
+
+  it("отклоняет некорректный диапазон с точкой перед одиночным дефисом", () => {
+    expect(isIpPartiallyValid("192.168.1.-")).not.toBe("");
+  });
+
+  it("отклоняет IPv4 диапазон, где начало больше конца", () => {
+    expect(isIpPartiallyValid("192.168.1.10-192.168.1.2")).not.toBe("");
+  });
+
+  it("отклоняет IPv6 с тройным двоеточием", () => {
+    expect(isIpPartiallyValid("2001:db8:::1")).not.toBe("");
+  });
 });
 
 // =====================================================================
@@ -148,19 +190,18 @@ describe("isMacValid", () => {
     expect(isMacValid("")).toBe(true);
   });
 
-  it.each([
-    "AA-BB-CC-DD-EE-FF",
-    "aa-bb-cc-dd-ee-ff",
-    "01-23-45-67-89-AB",
-  ])("принимает полный MAC: %s", (v) => expect(isMacValid(v)).toBe(true));
+  it.each(["AA-BB-CC-DD-EE-FF", "aa-bb-cc-dd-ee-ff", "01-23-45-67-89-AB"])(
+    "принимает полный MAC: %s",
+    (v) => expect(isMacValid(v)).toBe(true),
+  );
 
   it.each([
-    "AA-BB-CC-DD-EE",       // 5 октетов
-    "AA-BB-CC",             // 3 октета
-    "AA",                   // 1 октет
-    "GG-HH-II-JJ-KK-LL",  // невалидные hex
-    "AA:BB:CC:DD:EE:FF",   // двоеточие вместо дефиса
-    "AABBCCDDEEFF",         // без разделителей
+    "AA-BB-CC-DD-EE", // 5 октетов
+    "AA-BB-CC", // 3 октета
+    "AA", // 1 октет
+    "GG-HH-II-JJ-KK-LL", // невалидные hex
+    "AA:BB:CC:DD:EE:FF", // двоеточие вместо дефиса
+    "AABBCCDDEEFF", // без разделителей
   ])("отклоняет %s", (v) => expect(isMacValid(v)).toBe(false));
 
   it("принимает перечисление через запятую", () => {
@@ -194,8 +235,7 @@ describe("isMacPartiallyValid", () => {
     expect(isMacPartiallyValid(v)).toBe("");
   });
 
-  it.each(["GG", "ZZ-XX"])(
-    "отклоняет невалидный hex: %s",
-    (v) => expect(isMacPartiallyValid(v)).not.toBe(""),
+  it.each(["GG", "ZZ-XX"])("отклоняет невалидный hex: %s", (v) =>
+    expect(isMacPartiallyValid(v)).not.toBe(""),
   );
 });

@@ -82,20 +82,22 @@ describe("NetworkForm — IP валидация", () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "abc.def");
     await user.tab();
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
+    expect(screen.getByText(/некорректный формат ip/i)).toBeInTheDocument();
   });
 
   it("показывает ошибку при вводе невалидных символов", async () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "xyz!");
-    expect(screen.getByText(/некорректный формат ip/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/содержатся недопустимые символы в ip-адресе/i),
+    ).toBeInTheDocument();
   });
 
   it("убирает ошибку когда пользователь исправляет ввод", async () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "abc.def");
     await user.tab();
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
+    expect(screen.getByText(/некорректный формат ip/i)).toBeInTheDocument();
 
     await user.clear(ipInput);
     await user.type(ipInput, "192.168.1.1");
@@ -107,7 +109,7 @@ describe("NetworkForm — IP валидация", () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "abc.def");
     await user.tab(); // blur -> touched
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
+    expect(screen.getByText(/некорректный формат ip/i)).toBeInTheDocument();
 
     await user.clear(ipInput);
     await user.type(ipInput, "192.168");
@@ -119,7 +121,7 @@ describe("NetworkForm — IP валидация", () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "bad");
     await user.tab();
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
+    expect(screen.getByText(/некорректный формат ip/i)).toBeInTheDocument();
 
     await user.clear(ipInput);
     await user.type(ipInput, "10.0.0.1");
@@ -157,7 +159,9 @@ describe("NetworkForm — MAC валидация", () => {
   it("показывает ошибку при невалидных hex-символах", async () => {
     const { user, macInput } = setup();
     await user.type(macInput, "GG");
-    expect(screen.getByText(/некорректный формат mac/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/содержатся недопустимые символы в mac-адресе/i),
+    ).toBeInTheDocument();
   });
 
   it("не показывает ошибку при частичном вводе MAC", async () => {

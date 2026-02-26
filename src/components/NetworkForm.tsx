@@ -1,5 +1,9 @@
 import { useState, useCallback, type ChangeEvent, type FormEvent } from "react";
-import { isIpPartiallyValid, isMacPartiallyValid } from "../utils/validators";
+import {
+  isIpPartiallyValid,
+  isMacPartiallyValid,
+  isMacValid,
+} from "../utils/validators";
 import "./NetworkForm.css";
 
 interface FieldState {
@@ -23,7 +27,7 @@ export default function NetworkForm() {
     setIp((prev) => {
       let error: string | null = null;
       if (v && partialError) {
-        error = "Некорректный формат IP-адреса";
+        error = partialError;
       }
       return { ...prev, value: v, error };
     });
@@ -35,7 +39,7 @@ export default function NetworkForm() {
       return {
         ...prev,
         touched: true,
-        error: prev.value && partialError ? "Некорректный IP-адрес" : null,
+        error: prev.value && partialError ? partialError : null,
       };
     });
   }, []);
@@ -48,7 +52,7 @@ export default function NetworkForm() {
     setMac((prev) => {
       let error: string | null = null;
       if (v && partialError) {
-        error = "Некорректный формат MAC-адреса";
+        error = partialError;
       }
       return { ...prev, value: v, error };
     });
@@ -57,11 +61,17 @@ export default function NetworkForm() {
   const handleMacBlur = useCallback(() => {
     setMac((prev) => {
       const partialError = isMacPartiallyValid(prev.value);
-      return {
-        ...prev,
-        touched: true,
-        error: prev.value && partialError ? "Некорректный MAC-адрес" : null,
-      };
+      let error: string | null = null;
+
+      if (prev.value) {
+        if (partialError) {
+          error = partialError;
+        } else if (!isMacValid(prev.value)) {
+          error = "Некорректный MAC-адрес";
+        }
+      }
+
+      return { ...prev, touched: true, error };
     });
   }, []);
 
@@ -72,7 +82,9 @@ export default function NetworkForm() {
       e.preventDefault();
 
       const ipOk = isIpPartiallyValid(ip.value) === "";
-      const macOk = isMacPartiallyValid(mac.value) === "";
+      const macPartialOk = isMacPartiallyValid(mac.value) === "";
+      const macFullOk = !mac.value || isMacValid(mac.value);
+      const macOk = macPartialOk && macFullOk;
 
       setIp((prev) => ({
         ...prev,
