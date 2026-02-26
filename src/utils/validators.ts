@@ -96,12 +96,27 @@ const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
 
 // Атомарные Zod-схемы для *полных* IPv4/IPv6-токенов.
-// Используем их внутри partial-логики вместо ручных regex-ов,
-// не меняя общую структуру проверок.
-const Ipv4TokenSchema = z.ipv4();
-const Ipv6TokenSchema = z.ipv6();
-const Cidrv4TokenSchema = z.cidrv4();
-const Cidrv6TokenSchema = z.cidrv6();
+// Используем ip-хелперы zod, если они доступны в текущей версии, иначе
+// fallback на regex-основанные схемы поверх наших шаблонов.
+const Ipv4TokenSchema =
+  typeof (z as any).ipv4 === "function"
+    ? (z as any).ipv4()
+    : z.string().regex(new RegExp(`^${IPV4_FULL}$`));
+
+const Ipv6TokenSchema =
+  typeof (z as any).ipv6 === "function"
+    ? (z as any).ipv6()
+    : z.string().regex(new RegExp(`^${IPV6_FULL}$`));
+
+const Cidrv4TokenSchema =
+  typeof (z as any).cidrv4 === "function"
+    ? (z as any).cidrv4()
+    : z.string().regex(new RegExp(`^${IPV4_CIDR_FULL}$`));
+
+const Cidrv6TokenSchema =
+  typeof (z as any).cidrv6 === "function"
+    ? (z as any).cidrv6()
+    : z.string().regex(new RegExp(`^${IPV6_CIDR_FULL}$`));
 
 function isFullIpv4Token(value: string): boolean {
   return Ipv4TokenSchema.safeParse(value).success;
@@ -364,7 +379,7 @@ const IpFullSchema = z
 
     if (!hasFullMatch || hasTripleColon) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Неверный IP-адрес",
       });
       return;
@@ -384,7 +399,7 @@ const IpFullSchema = z
 
         if (!ok) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Неверный IP-адрес",
           });
           return;
@@ -410,7 +425,7 @@ const IpFullSchema = z
 
           if (matches && matches.length > 1) {
             ctx.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               message: "Неверный IP-адрес",
             });
             return;
@@ -418,7 +433,7 @@ const IpFullSchema = z
 
           if (matches && nonEmpty >= 7) {
             ctx.addIssue({
-              code: z.ZodIssueCode.custom,
+              code: "custom",
               message: "Неверный IP-адрес",
             });
             return;
@@ -444,7 +459,7 @@ const IpFullSchema = z
         const end = ipv4ToNumber(right);
         if (start > end) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Начало диапазона IPv4 больше конца",
           });
           return;
@@ -481,7 +496,7 @@ export function isIpPartiallyValid(value: string): string {
   // ---- Формирование более конкретного сообщения об ошибке ----
 
   // Недопустимые символы (не цифры, не A-F / a-f, не разделители).
-  if (/[^0-9a-fA-F:.,\s\/-]/.test(value)) {
+  if (/[^0-9a-fA-F:.,\s/-]/.test(value)) {
     return "Содержатся недопустимые символы в IP-адресе";
   }
 
@@ -512,14 +527,14 @@ const SingleMacFullSchema = z
   .transform((s) => s.trim())
   .superRefine((t, ctx) => {
     if (!t) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Пустой MAC" });
+      ctx.addIssue({ code: "custom", message: "Пустой MAC" });
       return;
     }
     // Строго требуем формат XX-XX-XX-XX-XX-XX: 6 сегментов по 2 hex-символа.
     const parts = t.split("-");
     if (parts.length !== 6 || !parts.every((p) => HEX2_RE.test(p))) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Некорректный MAC",
       });
     }
@@ -535,7 +550,7 @@ const SingleMacPartialSchema = z
     const parts = t.split("-");
     if (parts.length > 6) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Слишком много сегментов MAC",
       });
       return;
@@ -550,7 +565,7 @@ const SingleMacPartialSchema = z
       if (!part) {
         if (i !== lastIndex) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Пустой сегмент MAC в середине",
           });
           return;
@@ -563,7 +578,7 @@ const SingleMacPartialSchema = z
       if (i < lastIndex) {
         if (!HEX2_RE.test(part)) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Неверный hex в MAC",
           });
           return;
@@ -571,7 +586,7 @@ const SingleMacPartialSchema = z
       } else {
         if (!HEX1_2_RE.test(part)) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             message: "Неверный hex в MAC",
           });
           return;
@@ -591,14 +606,14 @@ const MacFullSchema = z.string().superRefine((value, ctx) => {
     if (!token) {
       // пустой элемент (в т.ч. trailing comma) — ошибка
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Пустой элемент в списке MAC",
       });
       return;
     }
     if (!SingleMacFullSchema.safeParse(token).success) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         message: "Некорректный MAC в списке",
       });
       return;
