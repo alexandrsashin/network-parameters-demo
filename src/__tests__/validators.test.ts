@@ -142,6 +142,10 @@ describe("isIpPartiallyValid", () => {
     expect(isIpPartiallyValid(v)).not.toBe(""),
   );
 
+  it("отклоняет список из чисел без IP", () => {
+    expect(isIpPartiallyValid("12,22,22,22,22")).not.toBe("");
+  });
+
   it("отклоняет IPv4 CIDR с маской больше 32", () => {
     expect(isIpPartiallyValid("192.168.1.1/33")).not.toBe("");
   });
@@ -178,6 +182,10 @@ describe("isIpPartiallyValid", () => {
 
   it("отклоняет IPv6 с тройным двоеточием", () => {
     expect(isIpPartiallyValid("2001:db8:::1")).not.toBe("");
+  });
+
+  it("отклоняет IPv4 диапазон с двойным дефисом в конце", () => {
+    expect(isIpPartiallyValid("12.33.33.33-12.33.33.33-")).not.toBe("");
   });
 });
 

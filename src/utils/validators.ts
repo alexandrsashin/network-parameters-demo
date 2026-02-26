@@ -141,6 +141,43 @@ function isIpPartialAllowed(value: string): boolean {
     if (left.endsWith(".")) {
       return false;
     }
+
+    // Не допускаем диапазоны вида "192.168.1-192.168.2.1" или
+    // "192.168.1.1-192.168.2", где одна сторона — полный IPv4,
+    // а другая содержит 1-2 точки (неполный IPv4).
+    if (left && right) {
+      const dotsLeft = (left.match(/\./g) || []).length;
+      const dotsRight = (right.match(/\./g) || []).length;
+      const leftFull = reIpv4FullOnly.test(left);
+      const rightFull = reIpv4FullOnly.test(right);
+
+      if (
+        (leftFull && !rightFull && dotsRight > 0 && dotsRight < 3) ||
+        (rightFull && !leftFull && dotsLeft > 0 && dotsLeft < 3)
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // Если введён список через запятую, то все *завершённые* элементы
+  // (кроме, возможно, последнего, который пользователь ещё набирает)
+  // должны хотя бы выглядеть как IP/диапазон/CIDR: содержать '.', ':',
+  // '/' или '-'. Это отсекает случаи вроде "12,22,22,22,22".
+  if (items.length > 1) {
+    const lastIndex = items.length - 1;
+    for (let i = 0; i < lastIndex; i++) {
+      const token = items[i].trim();
+      if (!token) continue;
+      if (
+        !token.includes(".") &&
+        !token.includes(":") &&
+        !token.includes("/") &&
+        !token.includes("-")
+      ) {
+        return false;
+      }
+    }
   }
 
   // Не допускаем тройное двоеточие в IPv6 даже при частичном вводе.
@@ -161,8 +198,29 @@ function isIpPartialAllowed(value: string): boolean {
           continue;
         }
 
-        // Любая IPv6-группа не должна содержать более 4 hex-символов.
+        // Разбор на группы.
         const groups = t.split(":");
+        const nonEmpty = groups.filter((g) => g.length > 0).length;
+
+        // Не допускаем адреса, которые начинаются с одиночного двоеточия
+        // и далее содержат хотя бы одну непустую группу (" :2001:db8:... "),
+        // но при этом не являются формой с "::" в начале.
+        if (groups[0] === "" && nonEmpty >= 1 && !t.startsWith("::")) {
+          return false;
+        }
+
+        // Не допускаем адреса, которые заканчиваются одиночным двоеточием
+        // и содержат более одной непустой группы ("2001:db8:...:"),
+        // но при этом не являются формой с "::" в конце.
+        if (
+          groups[groups.length - 1] === "" &&
+          nonEmpty > 1 &&
+          !t.endsWith("::")
+        ) {
+          return false;
+        }
+
+        // Любая IPv6-группа не должна содержать более 4 hex-символов.
         if (groups.some((g) => g.length > 4)) {
           return false;
         }
@@ -173,12 +231,18 @@ function isIpPartialAllowed(value: string): boolean {
           return false;
         }
 
+        // Также отсеиваем случаи с "::" и семью или более непустыми группами,
+        // например 2001:db8:...:1234::, которые считаем некорректными
+        // в рамках нашей модели ввода.
+        if (matches && nonEmpty >= 7) {
+          return false;
+        }
+
         // Специально отсеиваем случаи без "::" с заведомо некорректным
         // количеством полно заполненных групп:
         // - 7 полных групп (2001:db8:1:2:3:4:5)
         // - больше 8 полных групп (2001:db8:1:2:3:4:5:6:7)
         if (!matches || matches.length === 0) {
-          const nonEmpty = groups.filter((g) => g.length > 0).length;
           if (nonEmpty === 7 || nonEmpty > 8) {
             return false;
           }
@@ -255,7 +319,10 @@ function isIpPartialAllowed(value: string): boolean {
   const noRightSpaces = value.replace(/\s+$/, "");
   if (noRightSpaces.endsWith("-")) {
     const prefix = noRightSpaces.slice(0, -1);
-    if (prefix && reIpPartial.test(prefix)) {
+    // Разрешаем висящий дефис только после одиночного IP/списка IP,
+    // но не после уже сформированного диапазона с дефисом внутри,
+    // чтобы случаи вроде "12.33.33.33-12.33.33.33-" не считались валидными.
+    if (prefix && !prefix.includes("-") && reIpPartial.test(prefix)) {
       return true;
     }
   }
@@ -279,6 +346,41 @@ const IpFullSchema = z
         message: "Неверный IP-адрес",
       });
       return;
+    }
+
+    // Дополнительная семантическая проверка для IPv6-адресов с "::":
+    // отклоняем варианты с семью и более непустыми группами, например
+    // 2001:db8:...:1234::, даже если они формально проходят базовый regex.
+    const rows = value.split(",");
+    for (const raw of rows) {
+      const rangeParts = raw.split("-");
+      for (const rangePart of rangeParts) {
+        const cidrParts = rangePart.split("/");
+        for (const part of cidrParts) {
+          const t = part.trim();
+          if (!t || !t.includes(":")) continue;
+
+          const groups = t.split(":");
+          const nonEmpty = groups.filter((g) => g.length > 0).length;
+          const matches = t.match(/::/g);
+
+          if (matches && matches.length > 1) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Неверный IP-адрес",
+            });
+            return;
+          }
+
+          if (matches && nonEmpty >= 7) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Неверный IP-адрес",
+            });
+            return;
+          }
+        }
+      }
     }
 
     // Дополнительная семантическая проверка для IPv4-диапазонов:
