@@ -1,6 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import NetworkForm from "../components/NetworkForm";
+import {
+  TEXT_ALLOWED_CHARS,
+  TEXT_INVALID_IP,
+  TEXT_INVALID_MAC,
+  TEXT_IP_VERSION_MISMATCH,
+} from "../utils/validators";
 
 function setup() {
   const user = userEvent.setup();
@@ -88,9 +94,7 @@ describe("NetworkForm — IP валидация", () => {
   it("показывает ошибку при вводе невалидных символов", async () => {
     const { user, ipInput } = setup();
     await user.type(ipInput, "xyz!");
-    expect(
-      screen.getByText(/содержатся недопустимые символы в ip-адресе/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(TEXT_ALLOWED_CHARS)).toBeInTheDocument();
   });
 
   it("убирает ошибку когда пользователь исправляет ввод", async () => {
@@ -115,6 +119,13 @@ describe("NetworkForm — IP валидация", () => {
     await user.type(ipInput, "192.168");
     // частичный ввод с верным форматом — ошибки нет
     expect(screen.queryByText(/некорректный/i)).not.toBeInTheDocument();
+  });
+
+  it("показывает ошибку при диапазоне с разными версиями IP", async () => {
+    const { user, ipInput } = setup();
+    await user.type(ipInput, "192.168.1.1-::1");
+    await user.tab();
+    expect(screen.getByText(TEXT_IP_VERSION_MISMATCH)).toBeInTheDocument();
   });
 
   it("убирает ошибку сразу на onChange когда ввод становится валидным", async () => {
@@ -153,15 +164,13 @@ describe("NetworkForm — MAC валидация", () => {
     const { user, macInput } = setup();
     await user.type(macInput, "AA-BB-CC");
     await user.tab();
-    expect(screen.getByText(/некорректный mac/i)).toBeInTheDocument();
+    expect(screen.getByText(TEXT_INVALID_MAC)).toBeInTheDocument();
   });
 
   it("показывает ошибку при невалидных hex-символах", async () => {
     const { user, macInput } = setup();
     await user.type(macInput, "GG");
-    expect(
-      screen.getByText(/содержатся недопустимые символы в mac-адресе/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(TEXT_ALLOWED_CHARS)).toBeInTheDocument();
   });
 
   it("не показывает ошибку при частичном вводе MAC", async () => {
@@ -223,7 +232,7 @@ describe("NetworkForm — сабмит", () => {
     expect(
       screen.queryByText(/данные успешно отправлены/i),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
+    expect(screen.getByText(TEXT_INVALID_IP)).toBeInTheDocument();
   });
 
   it("не показывает успех при невалидном MAC", async () => {
@@ -233,7 +242,7 @@ describe("NetworkForm — сабмит", () => {
     expect(
       screen.queryByText(/данные успешно отправлены/i),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/некорректный mac/i)).toBeInTheDocument();
+    expect(screen.getByText(TEXT_INVALID_MAC)).toBeInTheDocument();
   });
 
   it("показывает ошибки для обоих полей при невалидных данных", async () => {
@@ -241,7 +250,7 @@ describe("NetworkForm — сабмит", () => {
     await user.type(ipInput, "999.999.999.999");
     await user.type(macInput, "ZZ-XX-YY-WW-VV-UU");
     await user.click(submitBtn);
-    expect(screen.getByText(/некорректный ip/i)).toBeInTheDocument();
-    expect(screen.getByText(/некорректный mac/i)).toBeInTheDocument();
+    expect(screen.getByText(TEXT_INVALID_IP)).toBeInTheDocument();
+    expect(screen.getByText(TEXT_INVALID_MAC)).toBeInTheDocument();
   });
 });

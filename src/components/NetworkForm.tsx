@@ -3,6 +3,9 @@ import {
   isIpPartiallyValid,
   isMacPartiallyValid,
   isMacValid,
+  TEXT_INVALID_IP,
+  TEXT_INVALID_MAC,
+  TEXT_RANGE_ALLOWED,
 } from "../utils/validators";
 import "./NetworkForm.css";
 
@@ -67,7 +70,7 @@ export default function NetworkForm() {
         if (partialError) {
           error = partialError;
         } else if (!isMacValid(prev.value)) {
-          error = "Некорректный MAC-адрес";
+          error = TEXT_INVALID_MAC;
         }
       }
 
@@ -89,12 +92,12 @@ export default function NetworkForm() {
       setIp((prev) => ({
         ...prev,
         touched: true,
-        error: prev.value && !ipOk ? "Некорректный IP-адрес" : null,
+        error: prev.value && !ipOk ? TEXT_INVALID_IP : null,
       }));
       setMac((prev) => ({
         ...prev,
         touched: true,
-        error: prev.value && !macOk ? "Некорректный MAC-адрес" : null,
+        error: prev.value && !macOk ? TEXT_INVALID_MAC : null,
       }));
 
       if (ipOk && macOk) {
@@ -126,7 +129,7 @@ export default function NetworkForm() {
         {ip.error && <span className="field__error">{ip.error}</span>}
         <span className="field__hint">
           IPv4 / IPv6, CIDR, диапазон (через&nbsp;«‑»), перечисление через
-          запятую
+          запятую. {TEXT_RANGE_ALLOWED}
         </span>
       </div>
 

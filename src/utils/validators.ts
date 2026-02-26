@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+type ZodWithIpHelpers = typeof z & {
+  ipv4?: () => z.ZodString;
+  ipv6?: () => z.ZodString;
+  cidrv4?: () => z.ZodString;
+  cidrv6?: () => z.ZodString;
+};
+
+const zIp = z as ZodWithIpHelpers;
+
+/* ------------------------------------------------------------------ */
+/*  Общие текстовые сообщения валидации                               */
+/* ------------------------------------------------------------------ */
+
+export const TEXT_INVALID_SUBNET = "Неверно определена подсеть";
+export const TEXT_INVALID_IP = "Некорректный IP-адрес";
+export const TEXT_RANGE_ALLOWED = "Допустимый диапазон IPv4 или IPv6";
+export const TEXT_RANGE_ORDER = "Неверный порядок IP в диапазоне";
+export const TEXT_IP_VERSION_MISMATCH = "IP версии должны совпадать";
+export const TEXT_ALLOWED_CHARS =
+  'Поле может содержать только цифры, буквы "a-f", "A-F" и символы .:/,-';
+export const TEXT_INVALID_MAC = "Некорректный MAC-адрес";
+
 /* ------------------------------------------------------------------ */
 /*  IP / MAC  validation helpers (на базе Zod)                        */
 /*  Поддерживают частичный ввод (пока пользователь печатает)          */
@@ -99,23 +121,23 @@ const reIpPartial = new RegExp(PARTIAL_LIST);
 // Используем ip-хелперы zod, если они доступны в текущей версии, иначе
 // fallback на regex-основанные схемы поверх наших шаблонов.
 const Ipv4TokenSchema =
-  typeof (z as any).ipv4 === "function"
-    ? (z as any).ipv4()
+  typeof zIp.ipv4 === "function"
+    ? zIp.ipv4()
     : z.string().regex(new RegExp(`^${IPV4_FULL}$`));
 
 const Ipv6TokenSchema =
-  typeof (z as any).ipv6 === "function"
-    ? (z as any).ipv6()
+  typeof zIp.ipv6 === "function"
+    ? zIp.ipv6()
     : z.string().regex(new RegExp(`^${IPV6_FULL}$`));
 
 const Cidrv4TokenSchema =
-  typeof (z as any).cidrv4 === "function"
-    ? (z as any).cidrv4()
+  typeof zIp.cidrv4 === "function"
+    ? zIp.cidrv4()
     : z.string().regex(new RegExp(`^${IPV4_CIDR_FULL}$`));
 
 const Cidrv6TokenSchema =
-  typeof (z as any).cidrv6 === "function"
-    ? (z as any).cidrv6()
+  typeof zIp.cidrv6 === "function"
+    ? zIp.cidrv6()
     : z.string().regex(new RegExp(`^${IPV6_CIDR_FULL}$`));
 
 function isFullIpv4Token(value: string): boolean {
@@ -137,6 +159,25 @@ function isValidCidrV6Token(value: string): boolean {
 function ipv4ToNumber(ip: string): number {
   const parts = ip.split(".").map((p) => Number.parseInt(p, 10));
   return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3];
+}
+
+function hasIpVersionMismatchInRange(value: string): boolean {
+  const items = value.split(",");
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    if (rangeParts.length !== 2) continue;
+
+    const left = rangeParts[0].trim();
+    const right = rangeParts[1].trim();
+    if (!left || !right) continue;
+
+    const leftIsV6 = left.includes(":");
+    const rightIsV6 = right.includes(":");
+    if (leftIsV6 !== rightIsV6) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function ipv6ToBigInt(ip: string): bigint {
@@ -380,6 +421,11 @@ function isIpPartialAllowed(value: string): boolean {
     }
   }
 
+  // Специальная проверка: диапазон не может смешивать IPv4 и IPv6.
+  if (hasIpVersionMismatchInRange(value)) {
+    return false;
+  }
+
   // Специальная проверка IPv6 диапазона: если обе части — полные IPv6 и
   // начало диапазона больше конца, такой диапазон считаем недопустимым
   // даже при частичном вводе.
@@ -432,7 +478,7 @@ const IpFullSchema = z
     if (!hasFullMatch || hasTripleColon) {
       ctx.addIssue({
         code: "custom",
-        message: "Неверный IP-адрес",
+        message: TEXT_INVALID_IP,
       });
       return;
     }
@@ -452,7 +498,7 @@ const IpFullSchema = z
         if (!ok) {
           ctx.addIssue({
             code: "custom",
-            message: "Неверный IP-адрес",
+            message: TEXT_INVALID_SUBNET,
           });
           return;
         }
@@ -478,7 +524,7 @@ const IpFullSchema = z
           if (matches && matches.length > 1) {
             ctx.addIssue({
               code: "custom",
-              message: "Неверный IP-адрес",
+              message: TEXT_INVALID_IP,
             });
             return;
           }
@@ -486,7 +532,7 @@ const IpFullSchema = z
           if (matches && nonEmpty >= 7) {
             ctx.addIssue({
               code: "custom",
-              message: "Неверный IP-адрес",
+              message: TEXT_INVALID_IP,
             });
             return;
           }
@@ -512,7 +558,7 @@ const IpFullSchema = z
         if (start > end) {
           ctx.addIssue({
             code: "custom",
-            message: "Начало диапазона IPv4 больше конца",
+            message: TEXT_RANGE_ORDER,
           });
           return;
         }
@@ -536,11 +582,20 @@ const IpFullSchema = z
         if (start > end) {
           ctx.addIssue({
             code: "custom",
-            message: "Начало диапазона IPv6 больше конца",
+            message: TEXT_RANGE_ORDER,
           });
           return;
         }
       }
+    }
+
+    // Диапазон не может смешивать IPv4 и IPv6.
+    if (hasIpVersionMismatchInRange(value)) {
+      ctx.addIssue({
+        code: "custom",
+        message: TEXT_IP_VERSION_MISMATCH,
+      });
+      return;
     }
   });
 
@@ -571,19 +626,49 @@ export function isIpPartiallyValid(value: string): string {
 
   // ---- Формирование более конкретного сообщения об ошибке ----
 
+  if (hasIpVersionMismatchInRange(value)) {
+    return TEXT_IP_VERSION_MISMATCH;
+  }
+
   // Недопустимые символы (не цифры, не A-F / a-f, не разделители).
   if (/[^0-9a-fA-F:.,\s/-]/.test(value)) {
-    return "Содержатся недопустимые символы в IP-адресе";
+    return TEXT_ALLOWED_CHARS;
+  }
+
+  // Проверка порядка диапазона: если обе части — полные IP одной версии
+  // и начало больше конца, возвращаем специфичную ошибку порядка.
+  if (value.includes("-")) {
+    const rangeItems = value.split(",");
+    for (const raw of rangeItems) {
+      const rangeParts = raw.split("-");
+      if (rangeParts.length !== 2) continue;
+
+      const left = rangeParts[0].trim();
+      const right = rangeParts[1].trim();
+      if (!left || !right) continue;
+
+      if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
+        if (ipv4ToNumber(left) > ipv4ToNumber(right)) {
+          return TEXT_RANGE_ORDER;
+        }
+      }
+
+      if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
+        if (ipv6ToBigInt(left) > ipv6ToBigInt(right)) {
+          return TEXT_RANGE_ORDER;
+        }
+      }
+    }
   }
 
   // Ошибка диапазона (есть дефис, но формат не прошёл partial-проверку).
   if (value.includes("-")) {
-    return "Некорректный формат диапазона IP-адресов";
+    return TEXT_RANGE_ALLOWED;
   }
 
   // Ошибка CIDR (есть '/', но маска некорректна).
   if (value.includes("/")) {
-    return "Некорректный формат CIDR-префикса IP-адреса";
+    return TEXT_INVALID_SUBNET;
   }
 
   // Общее сообщение по умолчанию.
@@ -603,7 +688,7 @@ const SingleMacFullSchema = z
   .transform((s) => s.trim())
   .superRefine((t, ctx) => {
     if (!t) {
-      ctx.addIssue({ code: "custom", message: "Пустой MAC" });
+      ctx.addIssue({ code: "custom", message: TEXT_INVALID_MAC });
       return;
     }
     // Строго требуем формат XX-XX-XX-XX-XX-XX: 6 сегментов по 2 hex-символа.
@@ -611,7 +696,7 @@ const SingleMacFullSchema = z
     if (parts.length !== 6 || !parts.every((p) => HEX2_RE.test(p))) {
       ctx.addIssue({
         code: "custom",
-        message: "Некорректный MAC",
+        message: TEXT_INVALID_MAC,
       });
     }
   });
@@ -683,14 +768,14 @@ const MacFullSchema = z.string().superRefine((value, ctx) => {
       // пустой элемент (в т.ч. trailing comma) — ошибка
       ctx.addIssue({
         code: "custom",
-        message: "Пустой элемент в списке MAC",
+        message: TEXT_INVALID_MAC,
       });
       return;
     }
     if (!SingleMacFullSchema.safeParse(token).success) {
       ctx.addIssue({
         code: "custom",
-        message: "Некорректный MAC в списке",
+        message: TEXT_INVALID_MAC,
       });
       return;
     }
@@ -758,7 +843,7 @@ export function isMacPartiallyValid(value: string): string {
 
   // Недопустимые символы (не цифры, не A-F / a-f, не '-', не ',').
   if (/[^0-9a-fA-F,\s-]/.test(value)) {
-    return "Содержатся недопустимые символы в MAC-адресе";
+    return TEXT_ALLOWED_CHARS;
   }
 
   // Ошибка списка MAC (что-то не так с разделением через запятую).
@@ -767,5 +852,5 @@ export function isMacPartiallyValid(value: string): string {
   }
 
   // Общее сообщение по умолчанию.
-  return "Некорректный формат MAC-адреса";
+  return TEXT_INVALID_MAC;
 }
