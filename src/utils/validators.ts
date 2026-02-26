@@ -139,6 +139,38 @@ function ipv4ToNumber(ip: string): number {
   return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3];
 }
 
+function ipv6ToBigInt(ip: string): bigint {
+  const hasDoubleColon = ip.includes("::");
+
+  if (!hasDoubleColon) {
+    const groups = ip.split(":");
+    let result = 0n;
+    for (const g of groups) {
+      const value = BigInt(Number.parseInt(g, 16));
+      result = (result << 16n) | value;
+    }
+    return result;
+  }
+
+  const [leftRaw, rightRaw] = ip.split("::");
+  const leftParts = leftRaw ? leftRaw.split(":") : [];
+  const rightParts = rightRaw ? rightRaw.split(":") : [];
+  const missing = 8 - (leftParts.length + rightParts.length);
+
+  const groups = [
+    ...leftParts,
+    ...Array(Math.max(missing, 0)).fill("0"),
+    ...rightParts,
+  ];
+
+  let result = 0n;
+  for (const g of groups) {
+    const value = BigInt(Number.parseInt(g || "0", 16));
+    result = (result << 16n) | value;
+  }
+  return result;
+}
+
 function hasTrailingDotAfterFullIpv4(value: string): boolean {
   const items = value.split(",");
   for (const item of items) {
@@ -348,6 +380,26 @@ function isIpPartialAllowed(value: string): boolean {
     }
   }
 
+  // Специальная проверка IPv6 диапазона: если обе части — полные IPv6 и
+  // начало диапазона больше конца, такой диапазон считаем недопустимым
+  // даже при частичном вводе.
+  for (const item of items) {
+    const rangeParts = item.split("-");
+    if (rangeParts.length !== 2) continue;
+
+    const left = rangeParts[0].trim();
+    const right = rangeParts[1].trim();
+    if (!left || !right) continue;
+
+    if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
+      const start = ipv6ToBigInt(left);
+      const end = ipv6ToBigInt(right);
+      if (start > end) {
+        return false;
+      }
+    }
+  }
+
   // Базовая проверка по regex
   if (reIpPartial.test(value)) return true;
 
@@ -461,6 +513,30 @@ const IpFullSchema = z
           ctx.addIssue({
             code: "custom",
             message: "Начало диапазона IPv4 больше конца",
+          });
+          return;
+        }
+      }
+    }
+
+    // Дополнительная семантическая проверка для IPv6-диапазонов:
+    // начало не должно быть больше конца (по числовому сравнению групп).
+    for (const raw of items) {
+      const token = raw.trim();
+      if (!token.includes("-")) continue;
+
+      const [leftRaw, rightRaw] = token.split("-");
+      if (!leftRaw || !rightRaw) continue;
+      const left = leftRaw.trim();
+      const right = rightRaw.trim();
+
+      if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
+        const start = ipv6ToBigInt(left);
+        const end = ipv6ToBigInt(right);
+        if (start > end) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Начало диапазона IPv6 больше конца",
           });
           return;
         }

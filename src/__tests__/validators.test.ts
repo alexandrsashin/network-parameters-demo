@@ -83,9 +83,14 @@ describe("isIpValid", () => {
       expect(isIpValid("192.168.1.10-192.168.1.2")).toBe(false);
     });
 
-    it.each(["::1-::ffff"])("IPv6 range: принимает %s", (v) =>
-      expect(isIpValid(v)).toBe(true),
+    it.each(["::1-::ffff", "2001:db8::1 - 2001:db8::ff"])(
+      "IPv6 range: принимает %s",
+      (v) => expect(isIpValid(v)).toBe(true),
     );
+
+    it("IPv6 range: отклоняет, если начало больше конца", () => {
+      expect(isIpValid("2001:db8::ff-2001:db8::1")).toBe(false);
+    });
   });
 
   describe("Перечисление через запятую", () => {
@@ -178,6 +183,10 @@ describe("isIpPartiallyValid", () => {
 
   it("отклоняет IPv4 диапазон, где начало больше конца", () => {
     expect(isIpPartiallyValid("192.168.1.10-192.168.1.2")).not.toBe("");
+  });
+
+  it("отклоняет IPv6 диапазон, где начало больше конца", () => {
+    expect(isIpPartiallyValid("2001:db8::ff-2001:db8::1")).not.toBe("");
   });
 
   it("отклоняет IPv6 с тройным двоеточием", () => {
