@@ -170,16 +170,38 @@ export function isIpValid(value: string): boolean {
 /**
  * Проверяет, допустим ли *промежуточный* ввод IP-поля
  * (пока пользователь печатает).
+ * Возвращает пустую строку при успехе и текст ошибки при неудаче.
  */
-export function isIpPartiallyValid(value: string): boolean {
+export function isIpPartiallyValid(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) return true;
+  if (!trimmed) return "";
 
-  // Любое полностью валидное значение должно автоматически
-  // считаться допустимым и для частичной валидации.
-  if (isIpValid(value)) return true;
+  // Любое полностью валидное значение автоматически считается
+  // допустимым и для частичной валидации.
+  if (isIpValid(value)) return "";
 
-  return IpPartialSchema.safeParse(value).success;
+  // Сохраняем старую логику допуска через isIpPartialAllowed.
+  if (isIpPartialAllowed(value)) return "";
+
+  // ---- Формирование более конкретного сообщения об ошибке ----
+
+  // Недопустимые символы (не цифры, не A-F / a-f, не разделители).
+  if (/[^0-9a-fA-F:.,\s\/-]/.test(value)) {
+    return "Содержатся недопустимые символы в IP-адресе";
+  }
+
+  // Ошибка диапазона (есть дефис, но формат не прошёл partial-проверку).
+  if (value.includes("-")) {
+    return "Некорректный формат диапазона IP-адресов";
+  }
+
+  // Ошибка CIDR (есть '/', но маска некорректна).
+  if (value.includes("/")) {
+    return "Некорректный формат CIDR-префикса IP-адреса";
+  }
+
+  // Общее сообщение по умолчанию.
+  return "Некорректный формат IP-адреса";
 }
 
 // ==================== MAC ====================
@@ -343,14 +365,31 @@ export function isMacValid(value: string): boolean {
  * Все элементы до последнего — полные MAC,
  * последний — может быть частичным (пользователь его набирает).
  * Разрешаем завершающую запятую и пробелы после неё.
+ * Возвращает пустую строку при успехе и текст ошибки при неудаче.
  */
-export function isMacPartiallyValid(value: string): boolean {
+export function isMacPartiallyValid(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) return true;
+  if (!trimmed) return "";
 
-  // Любое полностью валидное значение должно автоматически
-  // считаться допустимым и для частичной валидации.
-  if (isMacValid(value)) return true;
+  // Любое полностью валидное значение автоматически считается
+  // допустимым и для частичной валидации.
+  if (isMacValid(value)) return "";
 
-  return MacPartialSchema.safeParse(value).success;
+  // Сохраняем старую логику допуска через isMacPartialAllowed.
+  if (isMacPartialAllowed(value)) return "";
+
+  // ---- Формирование более конкретного сообщения об ошибке ----
+
+  // Недопустимые символы (не цифры, не A-F / a-f, не '-', не ',').
+  if (/[^0-9a-fA-F,\s-]/.test(value)) {
+    return "Содержатся недопустимые символы в MAC-адресе";
+  }
+
+  // Ошибка списка MAC (что-то не так с разделением через запятую).
+  if (value.includes(",")) {
+    return "Некорректный формат списка MAC-адресов";
+  }
+
+  // Общее сообщение по умолчанию.
+  return "Некорректный формат MAC-адреса";
 }

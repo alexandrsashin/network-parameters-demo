@@ -130,12 +130,12 @@ describe("isIpPartiallyValid", () => {
     "192.168.1.1,",
     "192.168.1.1, ",
   ])("допускает частичный ввод: %s", (v) => {
-    expect(isIpPartiallyValid(v)).toBe(true);
+    expect(isIpPartiallyValid(v)).toBe("");
   });
 
   it.each(["abc", "zzz.zzz"])(
     "отклоняет явно некорректный: %s",
-    (v) => expect(isIpPartiallyValid(v)).toBe(false),
+    (v) => expect(isIpPartiallyValid(v)).not.toBe(""),
   );
 });
 
@@ -191,11 +191,11 @@ describe("isMacPartiallyValid", () => {
     "AA-BB-CC-DD-EE-FF,",
     "AA-BB-CC-DD-EE-FF, ",
   ])("допускает частичный ввод: %s", (v) => {
-    expect(isMacPartiallyValid(v)).toBe(true);
+    expect(isMacPartiallyValid(v)).toBe("");
   });
 
   it.each(["GG", "ZZ-XX"])(
     "отклоняет невалидный hex: %s",
-    (v) => expect(isMacPartiallyValid(v)).toBe(false),
+    (v) => expect(isMacPartiallyValid(v)).not.toBe(""),
   );
 });

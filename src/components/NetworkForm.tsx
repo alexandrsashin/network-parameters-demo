@@ -19,10 +19,10 @@ export default function NetworkForm() {
 
   const handleIpChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-    const partial = isIpPartiallyValid(v);
+    const partialError = isIpPartiallyValid(v);
     setIp((prev) => {
       let error: string | null = null;
-      if (v && !partial) {
+      if (v && partialError) {
         error = "Некорректный формат IP-адреса";
       }
       return { ...prev, value: v, error };
@@ -31,11 +31,11 @@ export default function NetworkForm() {
 
   const handleIpBlur = useCallback(() => {
     setIp((prev) => {
-      const partial = isIpPartiallyValid(prev.value);
+      const partialError = isIpPartiallyValid(prev.value);
       return {
         ...prev,
         touched: true,
-        error: prev.value && !partial ? "Некорректный IP-адрес" : null,
+        error: prev.value && partialError ? "Некорректный IP-адрес" : null,
       };
     });
   }, []);
@@ -44,10 +44,10 @@ export default function NetworkForm() {
 
   const handleMacChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
-    const partial = isMacPartiallyValid(v);
+    const partialError = isMacPartiallyValid(v);
     setMac((prev) => {
       let error: string | null = null;
-      if (v && !partial) {
+      if (v && partialError) {
         error = "Некорректный формат MAC-адреса";
       }
       return { ...prev, value: v, error };
@@ -56,11 +56,11 @@ export default function NetworkForm() {
 
   const handleMacBlur = useCallback(() => {
     setMac((prev) => {
-      const partial = isMacPartiallyValid(prev.value);
+      const partialError = isMacPartiallyValid(prev.value);
       return {
         ...prev,
         touched: true,
-        error: prev.value && !partial ? "Некорректный MAC-адрес" : null,
+        error: prev.value && partialError ? "Некорректный MAC-адрес" : null,
       };
     });
   }, []);
@@ -71,8 +71,8 @@ export default function NetworkForm() {
     (e: FormEvent) => {
       e.preventDefault();
 
-      const ipOk = isIpPartiallyValid(ip.value);
-      const macOk = isMacPartiallyValid(mac.value);
+      const ipOk = isIpPartiallyValid(ip.value) === "";
+      const macOk = isMacPartiallyValid(mac.value) === "";
 
       setIp((prev) => ({
         ...prev,
