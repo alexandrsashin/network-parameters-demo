@@ -94,6 +94,46 @@ const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
 const reIpv4FullOnly = new RegExp(`^${IPV4_FULL}$`);
 
+function hasTrailingDotAfterFullIpv4(value: string): boolean {
+  const items = value.split(",");
+  for (const item of items) {
+    const rangePart = item.split("-");
+    for (const part of rangePart) {
+      const t = part.trim();
+      if (!t) continue;
+      if (t.endsWith(".")) {
+        const prefix = t.slice(0, -1).trim();
+        if (reIpv4FullOnly.test(prefix)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function isIpPartialAllowed(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true; // пустое поле — ок
+
+  if (hasTrailingDotAfterFullIpv4(value)) return false;
+
+  // Базовая проверка по regex
+  if (reIpPartial.test(value)) return true;
+
+  // Дополнительно допускаем случай, когда пользователь набрал IP и поставил
+  // висящий дефис для диапазона: "192.168.1.1-".
+  const noRightSpaces = value.replace(/\s+$/, "");
+  if (noRightSpaces.endsWith("-")) {
+    const prefix = noRightSpaces.slice(0, -1);
+    if (prefix && reIpPartial.test(prefix)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Полный IP (IPv4/IPv6, CIDR, диапазон, список через запятую)
 const IpFullSchema = z
   .string()
@@ -110,43 +150,7 @@ const IpFullSchema = z
 
 // Частичный IP (при вводе)
 const IpPartialSchema = z.string().superRefine((value, ctx) => {
-  const trimmed = value.trim();
-  if (!trimmed) return; // пустое поле — ок
-
-  // Не считаем валидным частичным вводом, если в любом из IP-токенов
-  // (включая элементы диапазона и списка) есть 4 полных октета и лишняя
-  // точка в конце: "33.33.33.33.", "33.33.33.33-22.22.22.22." и т.п.
-  const items = value.split(",");
-  for (const item of items) {
-    const rangePart = item.split("-");
-    for (const part of rangePart) {
-      const t = part.trim();
-      if (!t) continue;
-      if (t.endsWith(".")) {
-        const prefix = t.slice(0, -1).trim();
-        if (reIpv4FullOnly.test(prefix)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Лишняя точка после полного IPv4",
-          });
-          return;
-        }
-      }
-    }
-  }
-
-  // Базовая проверка по regex
-  if (reIpPartial.test(value)) return;
-
-  // Дополнительно допускаем случай, когда пользователь набрал IP и поставил
-  // висящий дефис для диапазона: "192.168.1.1-".
-  const noRightSpaces = value.replace(/\s+$/, "");
-  if (noRightSpaces.endsWith("-")) {
-    const prefix = noRightSpaces.slice(0, -1);
-    if (prefix && reIpPartial.test(prefix)) {
-      return;
-    }
-  }
+  if (isIpPartialAllowed(value)) return;
 
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
@@ -262,10 +266,9 @@ const MacFullSchema = z.string().superRefine((value, ctx) => {
   }
 });
 
-// Частичный список MAC при вводе
-const MacPartialSchema = z.string().superRefine((value, ctx) => {
+function isMacPartialAllowed(value: string): boolean {
   const trimmed = value.trim();
-  if (!trimmed) return; // пустое поле — ок
+  if (!trimmed) return true; // пустое поле — ок
 
   const items = value.split(",");
   const lastIndex = items.length - 1;
@@ -276,27 +279,31 @@ const MacPartialSchema = z.string().superRefine((value, ctx) => {
 
     // Последний пустой элемент: trailing comma ("AA-..-FF," или с пробелом) — ок
     if (i === lastIndex && !token) {
-      return;
+      return true;
     }
 
     if (i < lastIndex) {
       if (!SingleMacFullSchema.safeParse(token).success) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Некорректный полный MAC до последнего элемента",
-        });
-        return;
+        return false;
       }
     } else {
       if (!SingleMacPartialSchema.safeParse(token).success) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Некорректный частичный MAC",
-        });
-        return;
+        return false;
       }
     }
   }
+
+  return true;
+}
+
+// Частичный список MAC при вводе
+const MacPartialSchema = z.string().superRefine((value, ctx) => {
+  if (isMacPartialAllowed(value)) return;
+
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Некорректный MAC (частичный ввод)",
+  });
 });
 
 /**
