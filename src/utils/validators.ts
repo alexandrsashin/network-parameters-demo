@@ -172,12 +172,21 @@ export function isIpValid(value: string): boolean {
  * (пока пользователь печатает).
  */
 export function isIpPartiallyValid(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+
+  // Любое полностью валидное значение должно автоматически
+  // считаться допустимым и для частичной валидации.
+  if (isIpValid(value)) return true;
+
   return IpPartialSchema.safeParse(value).success;
 }
 
 // ==================== MAC ====================
 
+// регулярка для ровно двух шестнадцатеричных символов
 const HEX2_RE = /^[0-9a-fA-F]{2}$/;
+// регулярка для одного или двух шестнадцатеричных символов
 const HEX1_2_RE = /^[0-9a-fA-F]{1,2}$/;
 
 // Полный одиночный MAC: XX-XX-XX-XX-XX-XX
@@ -215,12 +224,14 @@ const SingleMacPartialSchema = z
       return;
     }
 
+    const lastIndex = parts.length - 1;
+
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
 
       // Разрешаем пустой последний сегмент: "AA-BB-" и т.п.
       if (!part) {
-        if (i !== parts.length - 1) {
+        if (i !== lastIndex) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Пустой сегмент MAC в середине",
@@ -230,12 +241,24 @@ const SingleMacPartialSchema = z
         continue;
       }
 
-      if (!HEX1_2_RE.test(part)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Неверный hex в MAC",
-        });
-        return;
+      // Для всех сегментов, кроме последнего, требуем ровно 2 hex-символа.
+      // Для последнего сегмента допускаем 1–2 hex-символа (пользователь допечатывает).
+      if (i < lastIndex) {
+        if (!HEX2_RE.test(part)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Неверный hex в MAC",
+          });
+          return;
+        }
+      } else {
+        if (!HEX1_2_RE.test(part)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Неверный hex в MAC",
+          });
+          return;
+        }
       }
     }
   });
@@ -322,6 +345,12 @@ export function isMacValid(value: string): boolean {
  * Разрешаем завершающую запятую и пробелы после неё.
  */
 export function isMacPartiallyValid(value: string): boolean {
-  if (!value.trim()) return true;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+
+  // Любое полностью валидное значение должно автоматически
+  // считаться допустимым и для частичной валидации.
+  if (isMacValid(value)) return true;
+
   return MacPartialSchema.safeParse(value).success;
 }

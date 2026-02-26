@@ -1,10 +1,5 @@
 import { useState, useCallback, type ChangeEvent, type FormEvent } from "react";
-import {
-  isIpValid,
-  isIpPartiallyValid,
-  isMacValid,
-  isMacPartiallyValid,
-} from "../utils/validators";
+import { isIpPartiallyValid, isMacPartiallyValid } from "../utils/validators";
 import "./NetworkForm.css";
 
 interface FieldState {
@@ -25,10 +20,9 @@ export default function NetworkForm() {
   const handleIpChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     const partial = isIpPartiallyValid(v);
-    const full = isIpValid(v);
     setIp((prev) => {
       let error: string | null = null;
-      if (v && !partial && !full) {
+      if (v && !partial) {
         error = "Некорректный формат IP-адреса";
       }
       return { ...prev, value: v, error };
@@ -37,11 +31,11 @@ export default function NetworkForm() {
 
   const handleIpBlur = useCallback(() => {
     setIp((prev) => {
-      const full = isIpValid(prev.value);
+      const partial = isIpPartiallyValid(prev.value);
       return {
         ...prev,
         touched: true,
-        error: prev.value && !full ? "Некорректный IP-адрес" : null,
+        error: prev.value && !partial ? "Некорректный IP-адрес" : null,
       };
     });
   }, []);
@@ -51,10 +45,9 @@ export default function NetworkForm() {
   const handleMacChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     const partial = isMacPartiallyValid(v);
-    const full = isMacValid(v);
     setMac((prev) => {
       let error: string | null = null;
-      if (v && !partial && !full) {
+      if (v && !partial) {
         error = "Некорректный формат MAC-адреса";
       }
       return { ...prev, value: v, error };
@@ -63,11 +56,11 @@ export default function NetworkForm() {
 
   const handleMacBlur = useCallback(() => {
     setMac((prev) => {
-      const full = isMacValid(prev.value);
+      const partial = isMacPartiallyValid(prev.value);
       return {
         ...prev,
         touched: true,
-        error: prev.value && !full ? "Некорректный MAC-адрес" : null,
+        error: prev.value && !partial ? "Некорректный MAC-адрес" : null,
       };
     });
   }, []);
@@ -78,8 +71,8 @@ export default function NetworkForm() {
     (e: FormEvent) => {
       e.preventDefault();
 
-      const ipOk = isIpValid(ip.value);
-      const macOk = isMacValid(mac.value);
+      const ipOk = isIpPartiallyValid(ip.value);
+      const macOk = isMacPartiallyValid(mac.value);
 
       setIp((prev) => ({
         ...prev,
