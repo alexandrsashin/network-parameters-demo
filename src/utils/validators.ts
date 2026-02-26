@@ -1,5 +1,7 @@
+import { z } from "zod";
+
 /* ------------------------------------------------------------------ */
-/*  IP / MAC  validation helpers                                      */
+/*  IP / MAC  validation helpers (на базе Zod)                        */
 /*  Поддерживают частичный ввод (пока пользователь печатает)          */
 /*  и полный ввод (при сабмите / блёре)                               */
 /* ------------------------------------------------------------------ */
@@ -92,22 +94,24 @@ const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
 const reIpv4FullOnly = new RegExp(`^${IPV4_FULL}$`);
 
-/**
- * Проверяет, является ли строка корректным *полным* IP-значением
- * (IPv4/IPv6, CIDR, диапазон, список через запятую).
- */
-export function isIpValid(value: string): boolean {
-  if (!value.trim()) return true; // пустое поле — ок
-  return reIpFull.test(value);
-}
+// Полный IP (IPv4/IPv6, CIDR, диапазон, список через запятую)
+const IpFullSchema = z
+  .string()
+  .transform((v) => v.trim())
+  .superRefine((value, ctx) => {
+    if (!value) return; // пустая строка валидна на уровне обёртки
+    if (!reIpFull.test(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Неверный IP-адрес",
+      });
+    }
+  });
 
-/**
- * Проверяет, допустим ли *промежуточный* ввод IP-поля
- * (пока пользователь печатает).
- */
-export function isIpPartiallyValid(value: string): boolean {
+// Частичный IP (при вводе)
+const IpPartialSchema = z.string().superRefine((value, ctx) => {
   const trimmed = value.trim();
-  if (!trimmed) return true;
+  if (!trimmed) return; // пустое поле — ок
 
   // Не считаем валидным частичным вводом, если в любом из IP-токенов
   // (включая элементы диапазона и списка) есть 4 полных октета и лишняя
@@ -121,14 +125,18 @@ export function isIpPartiallyValid(value: string): boolean {
       if (t.endsWith(".")) {
         const prefix = t.slice(0, -1).trim();
         if (reIpv4FullOnly.test(prefix)) {
-          return false;
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Лишняя точка после полного IPv4",
+          });
+          return;
         }
       }
     }
   }
 
   // Базовая проверка по regex
-  if (reIpPartial.test(value)) return true;
+  if (reIpPartial.test(value)) return;
 
   // Дополнительно допускаем случай, когда пользователь набрал IP и поставил
   // висящий дефис для диапазона: "192.168.1.1-".
@@ -136,11 +144,31 @@ export function isIpPartiallyValid(value: string): boolean {
   if (noRightSpaces.endsWith("-")) {
     const prefix = noRightSpaces.slice(0, -1);
     if (prefix && reIpPartial.test(prefix)) {
-      return true;
+      return;
     }
   }
 
-  return false;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Неверный IP (частичный ввод)",
+  });
+});
+
+/**
+ * Проверяет, является ли строка корректным *полным* IP-значением
+ * (IPv4/IPv6, CIDR, диапазон, список через запятую).
+ */
+export function isIpValid(value: string): boolean {
+  if (!value.trim()) return true; // пустое поле — ок
+  return IpFullSchema.safeParse(value).success;
+}
+
+/**
+ * Проверяет, допустим ли *промежуточный* ввод IP-поля
+ * (пока пользователь печатает).
+ */
+export function isIpPartiallyValid(value: string): boolean {
+  return IpPartialSchema.safeParse(value).success;
 }
 
 // ==================== MAC ====================
@@ -148,70 +176,96 @@ export function isIpPartiallyValid(value: string): boolean {
 const HEX2_RE = /^[0-9a-fA-F]{2}$/;
 const HEX1_2_RE = /^[0-9a-fA-F]{1,2}$/;
 
-/** Полный одиночный MAC: XX-XX-XX-XX-XX-XX */
-function isSingleMacFull(token: string): boolean {
-  const t = token.trim();
-  if (!t) return false;
-
-  const parts = t.split("-");
-  if (parts.length !== 6) return false;
-
-  return parts.every((p) => HEX2_RE.test(p));
-}
-
-/** Частичный одиночный MAC при вводе.
- *  Допускаем:
- *  - 1–6 сегментов,
- *  - каждый сегмент 1–2 hex-символа,
- *  - последний сегмент может быть пустым, если пользователь только что ввёл '-'.
- */
-function isSingleMacPartial(token: string): boolean {
-  const t = token.trim();
-  if (!t) return true; // пустой токен внутри списка для последнего элемента обрабатываем отдельно
-
-  const parts = t.split("-");
-  if (parts.length > 6) return false;
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-
-    // Разрешаем пустой последний сегмент: "AA-BB-" и т.п.
-    if (!part) {
-      if (i !== parts.length - 1) return false;
-      continue;
+// Полный одиночный MAC: XX-XX-XX-XX-XX-XX
+const SingleMacFullSchema = z
+  .string()
+  .transform((s) => s.trim())
+  .superRefine((t, ctx) => {
+    if (!t) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Пустой MAC" });
+      return;
     }
 
-    if (!HEX1_2_RE.test(part)) return false;
-  }
+    const parts = t.split("-");
+    if (parts.length !== 6 || !parts.every((p) => HEX2_RE.test(p))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Некорректный MAC",
+      });
+    }
+  });
 
-  return true;
-}
+// Частичный одиночный MAC при вводе
+const SingleMacPartialSchema = z
+  .string()
+  .transform((s) => s.trim())
+  .superRefine((t, ctx) => {
+    if (!t) return; // пустой токен внутри списка для последнего элемента обрабатываем отдельно
 
-/**
- * Полная валидация MAC (при сабмите).
- * Все элементы списка через запятую должны быть полными MAC.
- */
-export function isMacValid(value: string): boolean {
-  if (!value.trim()) return true;
+    const parts = t.split("-");
+    if (parts.length > 6) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Слишком много сегментов MAC",
+      });
+      return;
+    }
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+
+      // Разрешаем пустой последний сегмент: "AA-BB-" и т.п.
+      if (!part) {
+        if (i !== parts.length - 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Пустой сегмент MAC в середине",
+          });
+          return;
+        }
+        continue;
+      }
+
+      if (!HEX1_2_RE.test(part)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Неверный hex в MAC",
+        });
+        return;
+      }
+    }
+  });
+
+// Полный список MAC через запятую
+const MacFullSchema = z.string().superRefine((value, ctx) => {
+  const trimmed = value.trim();
+  if (!trimmed) return; // пустое поле — ок на уровне обёртки
 
   const items = value.split(",");
-
-  // Отклоняем пустые элементы (в т.ч. trailing comma)
-  return items.every((raw) => {
+  for (const raw of items) {
     const token = raw.trim();
-    if (!token) return false;
-    return isSingleMacFull(token);
-  });
-}
+    if (!token) {
+      // пустой элемент (в т.ч. trailing comma) — ошибка
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Пустой элемент в списке MAC",
+      });
+      return;
+    }
+    if (!SingleMacFullSchema.safeParse(token).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Некорректный MAC в списке",
+      });
+      return;
+    }
+  }
+});
 
-/**
- * Частичная валидация MAC (при вводе).
- * Все элементы до последнего — полные MAC,
- * последний — может быть частичным (пользователь его набирает).
- * Разрешаем завершающую запятую и пробелы после неё.
- */
-export function isMacPartiallyValid(value: string): boolean {
-  if (!value.trim()) return true;
+// Частичный список MAC при вводе
+const MacPartialSchema = z.string().superRefine((value, ctx) => {
+  const trimmed = value.trim();
+  if (!trimmed) return; // пустое поле — ок
 
   const items = value.split(",");
   const lastIndex = items.length - 1;
@@ -222,15 +276,45 @@ export function isMacPartiallyValid(value: string): boolean {
 
     // Последний пустой элемент: trailing comma ("AA-..-FF," или с пробелом) — ок
     if (i === lastIndex && !token) {
-      return true;
+      return;
     }
 
     if (i < lastIndex) {
-      if (!isSingleMacFull(token)) return false;
+      if (!SingleMacFullSchema.safeParse(token).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Некорректный полный MAC до последнего элемента",
+        });
+        return;
+      }
     } else {
-      if (!isSingleMacPartial(token)) return false;
+      if (!SingleMacPartialSchema.safeParse(token).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Некорректный частичный MAC",
+        });
+        return;
+      }
     }
   }
+});
 
-  return true;
+/**
+ * Полная валидация MAC (при сабмите).
+ * Все элементы списка через запятую должны быть полными MAC.
+ */
+export function isMacValid(value: string): boolean {
+  if (!value.trim()) return true;
+  return MacFullSchema.safeParse(value).success;
+}
+
+/**
+ * Частичная валидация MAC (при вводе).
+ * Все элементы до последнего — полные MAC,
+ * последний — может быть частичным (пользователь его набирает).
+ * Разрешаем завершающую запятую и пробелы после неё.
+ */
+export function isMacPartiallyValid(value: string): boolean {
+  if (!value.trim()) return true;
+  return MacPartialSchema.safeParse(value).success;
 }
