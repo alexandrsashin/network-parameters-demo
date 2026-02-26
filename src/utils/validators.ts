@@ -212,6 +212,35 @@ function ipv6ToBigInt(ip: string): bigint {
   return result;
 }
 
+/**
+ * Проверяет, содержит ли значение диапазон, в котором начальный IP
+ * больше конечного (для IPv4 или IPv6). Возвращает true при нарушении порядка.
+ */
+function hasRangeOrderViolation(value: string): boolean {
+  const items = value.split(",");
+  for (const raw of items) {
+    const rangeParts = raw.split("-");
+    if (rangeParts.length !== 2) continue;
+
+    const left = rangeParts[0].trim();
+    const right = rangeParts[1].trim();
+    if (!left || !right) continue;
+
+    if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
+      if (ipv4ToNumber(left) > ipv4ToNumber(right)) {
+        return true;
+      }
+    }
+
+    if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
+      if (ipv6ToBigInt(left) > ipv6ToBigInt(right)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function hasTrailingDotAfterFullIpv4(value: string): boolean {
   const items = value.split(",");
   for (const item of items) {
@@ -401,49 +430,14 @@ function isIpPartialAllowed(value: string): boolean {
     }
   }
 
-  // Специальная проверка IPv4 диапазона: если обе части — полные IPv4 и
-  // начало диапазона больше конца, такой диапазон считаем недопустимым
-  // даже при частичном вводе.
-  for (const item of items) {
-    const rangeParts = item.split("-");
-    if (rangeParts.length !== 2) continue;
-
-    const left = rangeParts[0].trim();
-    const right = rangeParts[1].trim();
-    if (!left || !right) continue;
-
-    if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
-      const start = ipv4ToNumber(left);
-      const end = ipv4ToNumber(right);
-      if (start > end) {
-        return false;
-      }
-    }
+  // Специальная проверка диапазона: начало не должно быть больше конца.
+  if (hasRangeOrderViolation(value)) {
+    return false;
   }
 
   // Специальная проверка: диапазон не может смешивать IPv4 и IPv6.
   if (hasIpVersionMismatchInRange(value)) {
     return false;
-  }
-
-  // Специальная проверка IPv6 диапазона: если обе части — полные IPv6 и
-  // начало диапазона больше конца, такой диапазон считаем недопустимым
-  // даже при частичном вводе.
-  for (const item of items) {
-    const rangeParts = item.split("-");
-    if (rangeParts.length !== 2) continue;
-
-    const left = rangeParts[0].trim();
-    const right = rangeParts[1].trim();
-    if (!left || !right) continue;
-
-    if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
-      const start = ipv6ToBigInt(left);
-      const end = ipv6ToBigInt(right);
-      if (start > end) {
-        return false;
-      }
-    }
   }
 
   // Базовая проверка по regex
@@ -540,53 +534,14 @@ const IpFullSchema = z
       }
     }
 
-    // Дополнительная семантическая проверка для IPv4-диапазонов:
-    // начало не должно быть больше конца (по числовому сравнению октетов).
-    const items = value.split(",");
-    for (const raw of items) {
-      const token = raw.trim();
-      if (!token.includes("-")) continue;
-
-      const [leftRaw, rightRaw] = token.split("-");
-      if (!leftRaw || !rightRaw) continue;
-      const left = leftRaw.trim();
-      const right = rightRaw.trim();
-
-      if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
-        const start = ipv4ToNumber(left);
-        const end = ipv4ToNumber(right);
-        if (start > end) {
-          ctx.addIssue({
-            code: "custom",
-            message: TEXT_RANGE_ORDER,
-          });
-          return;
-        }
-      }
-    }
-
-    // Дополнительная семантическая проверка для IPv6-диапазонов:
-    // начало не должно быть больше конца (по числовому сравнению групп).
-    for (const raw of items) {
-      const token = raw.trim();
-      if (!token.includes("-")) continue;
-
-      const [leftRaw, rightRaw] = token.split("-");
-      if (!leftRaw || !rightRaw) continue;
-      const left = leftRaw.trim();
-      const right = rightRaw.trim();
-
-      if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
-        const start = ipv6ToBigInt(left);
-        const end = ipv6ToBigInt(right);
-        if (start > end) {
-          ctx.addIssue({
-            code: "custom",
-            message: TEXT_RANGE_ORDER,
-          });
-          return;
-        }
-      }
+    // Дополнительная семантическая проверка диапазонов:
+    // начало не должно быть больше конца.
+    if (hasRangeOrderViolation(value)) {
+      ctx.addIssue({
+        code: "custom",
+        message: TEXT_RANGE_ORDER,
+      });
+      return;
     }
 
     // Диапазон не может смешивать IPv4 и IPv6.
@@ -637,28 +592,8 @@ export function isIpPartiallyValid(value: string): string {
 
   // Проверка порядка диапазона: если обе части — полные IP одной версии
   // и начало больше конца, возвращаем специфичную ошибку порядка.
-  if (value.includes("-")) {
-    const rangeItems = value.split(",");
-    for (const raw of rangeItems) {
-      const rangeParts = raw.split("-");
-      if (rangeParts.length !== 2) continue;
-
-      const left = rangeParts[0].trim();
-      const right = rangeParts[1].trim();
-      if (!left || !right) continue;
-
-      if (isFullIpv4Token(left) && isFullIpv4Token(right)) {
-        if (ipv4ToNumber(left) > ipv4ToNumber(right)) {
-          return TEXT_RANGE_ORDER;
-        }
-      }
-
-      if (isFullIpv6Token(left) && isFullIpv6Token(right)) {
-        if (ipv6ToBigInt(left) > ipv6ToBigInt(right)) {
-          return TEXT_RANGE_ORDER;
-        }
-      }
-    }
+  if (hasRangeOrderViolation(value)) {
+    return TEXT_RANGE_ORDER;
   }
 
   // Ошибка диапазона (есть дефис, но формат не прошёл partial-проверку).
