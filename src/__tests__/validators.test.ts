@@ -218,6 +218,16 @@ describe("isIpPartiallyValid", () => {
       TEXT_RANGE_ALLOWED,
     );
   });
+
+  it.each(["192.168.1.1.", "10.0.0.1.", "255.255.255.255."])(
+    "отклоняет trailing dot после полного IPv4: %s",
+    (v) => expect(isIpPartiallyValid(v)).not.toBe(""),
+  );
+
+  it.each(["::1:", "2001:db8::1:", "1:2:3:4:5:6:7:8:"])(
+    "отклоняет trailing colon после полного IPv6: %s",
+    (v) => expect(isIpPartiallyValid(v)).not.toBe(""),
+  );
 });
 
 // =====================================================================

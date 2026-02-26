@@ -259,11 +259,35 @@ function hasTrailingDotAfterFullIpv4(value: string): boolean {
   return false;
 }
 
+/**
+ * Аналог hasTrailingDotAfterFullIpv4 для IPv6:
+ * отклоняет случаи вроде "::1:", "2001:db8::1:", "1:2:3:4:5:6:7:8:",
+ * где полный IPv6-адрес дополнен лишним одиночным двоеточием.
+ */
+function hasTrailingColonAfterFullIpv6(value: string): boolean {
+  const items = value.split(",");
+  for (const item of items) {
+    const rangePart = item.split("-");
+    for (const part of rangePart) {
+      const t = part.trim();
+      if (!t) continue;
+      if (t.endsWith(":") && !t.endsWith("::")) {
+        const prefix = t.slice(0, -1).trim();
+        if (isFullIpv6Token(prefix)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function isIpPartialAllowed(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return true; // пустое поле — ок
 
   if (hasTrailingDotAfterFullIpv4(value)) return false;
+  if (hasTrailingColonAfterFullIpv6(value)) return false;
 
   // Не допускаем диапазоны, где левая часть заканчивается точкой,
   // а правая уже содержит какой-то ввод, например "192.168.1.-1".
@@ -278,6 +302,12 @@ function isIpPartialAllowed(value: string): boolean {
     // Не допускаем ситуацию, когда левая часть диапазона заканчивается точкой,
     // независимо от того, есть ли правая часть ("192.168.1.-" или "192.168.1.-1").
     if (left.endsWith(".")) {
+      return false;
+    }
+
+    // Аналогично для IPv6: левая часть не должна заканчиваться одиночным
+    // двоеточием (т.е. адрес ещё не полон). Исключение — "::" (сжатие).
+    if (left.endsWith(":") && !left.endsWith("::")) {
       return false;
     }
 
@@ -345,17 +375,6 @@ function isIpPartialAllowed(value: string): boolean {
         // и далее содержат хотя бы одну непустую группу (" :2001:db8:... "),
         // но при этом не являются формой с "::" в начале.
         if (groups[0] === "" && nonEmpty >= 1 && !t.startsWith("::")) {
-          return false;
-        }
-
-        // Не допускаем адреса, которые заканчиваются одиночным двоеточием
-        // и содержат более одной непустой группы ("2001:db8:...:"),
-        // но при этом не являются формой с "::" в конце.
-        if (
-          groups[groups.length - 1] === "" &&
-          nonEmpty > 1 &&
-          !t.endsWith("::")
-        ) {
           return false;
         }
 
