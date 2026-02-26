@@ -100,6 +100,8 @@ const reIpPartial = new RegExp(PARTIAL_LIST);
 // не меняя общую структуру проверок.
 const Ipv4TokenSchema = z.ipv4();
 const Ipv6TokenSchema = z.ipv6();
+const Cidrv4TokenSchema = z.cidrv4();
+const Cidrv6TokenSchema = z.cidrv6();
 
 function isFullIpv4Token(value: string): boolean {
   return Ipv4TokenSchema.safeParse(value).success;
@@ -107,6 +109,14 @@ function isFullIpv4Token(value: string): boolean {
 
 function isFullIpv6Token(value: string): boolean {
   return Ipv6TokenSchema.safeParse(value).success;
+}
+
+function isValidCidrV4Token(value: string): boolean {
+  return Cidrv4TokenSchema.safeParse(value).success;
+}
+
+function isValidCidrV6Token(value: string): boolean {
+  return Cidrv6TokenSchema.safeParse(value).success;
 }
 
 function ipv4ToNumber(ip: string): number {
@@ -360,6 +370,28 @@ const IpFullSchema = z
       return;
     }
 
+    // Дополнительная семантическая проверка CIDR-префиксов через z.cidrv4/z.cidrv6.
+    // На этом этапе строка уже прошла базовый regex, здесь только уточняем корректность.
+    const cidrRows = value.split(",");
+    for (const raw of cidrRows) {
+      const rangeParts = raw.split("-");
+      for (const rangePart of rangeParts) {
+        const t = rangePart.trim();
+        if (!t || !t.includes("/")) continue;
+
+        const hasColon = t.includes(":");
+        const ok = hasColon ? isValidCidrV6Token(t) : isValidCidrV4Token(t);
+
+        if (!ok) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Неверный IP-адрес",
+          });
+          return;
+        }
+      }
+    }
+
     // Дополнительная семантическая проверка для IPv6-адресов с "::":
     // отклоняем варианты с семью и более непустыми группами, например
     // 2001:db8:...:1234::, даже если они формально проходят базовый regex.
@@ -421,16 +453,6 @@ const IpFullSchema = z
     }
   });
 
-// Частичный IP (при вводе)
-const IpPartialSchema = z.string().superRefine((value, ctx) => {
-  if (isIpPartialAllowed(value)) return;
-
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: "Неверный IP (частичный ввод)",
-  });
-});
-
 /**
  * Проверяет, является ли строка корректным *полным* IP-значением
  * (IPv4/IPv6, CIDR, диапазон, список через запятую).
@@ -484,11 +506,6 @@ const HEX2_RE = /^[0-9a-fA-F]{2}$/;
 // регулярка для одного или двух шестнадцатеричных символов
 const HEX1_2_RE = /^[0-9a-fA-F]{1,2}$/;
 
-// Атомарная Zod-схема полного MAC-токена.
-// Используем её внутри полной MAC-валидации, не меняя контракт
-// partial-логики и сообщений об ошибках.
-const MacTokenSchema = z.mac();
-
 // Полный одиночный MAC: XX-XX-XX-XX-XX-XX
 const SingleMacFullSchema = z
   .string()
@@ -498,19 +515,7 @@ const SingleMacFullSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Пустой MAC" });
       return;
     }
-    // Сначала проверяем, что строка вообще считается валидным MAC
-    // с точки зрения z.mac(). Если нет — сразу ошибка.
-    if (!MacTokenSchema.safeParse(t).success) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Некорректный MAC",
-      });
-      return;
-    }
-
-    // Затем сохраняем прежнее структурное ограничение: строго 6 сегментов
-    // формата XX-XX-XX-XX-XX-XX, чтобы не расширять формат относительно
-    // существующих тестов.
+    // Строго требуем формат XX-XX-XX-XX-XX-XX: 6 сегментов по 2 hex-символа.
     const parts = t.split("-");
     if (parts.length !== 6 || !parts.every((p) => HEX2_RE.test(p))) {
       ctx.addIssue({
@@ -630,16 +635,6 @@ function isMacPartialAllowed(value: string): boolean {
 
   return true;
 }
-
-// Частичный список MAC при вводе
-const MacPartialSchema = z.string().superRefine((value, ctx) => {
-  if (isMacPartialAllowed(value)) return;
-
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: "Некорректный MAC (частичный ввод)",
-  });
-});
 
 /**
  * Полная валидация MAC (при сабмите).
