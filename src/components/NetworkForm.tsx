@@ -25,11 +25,14 @@ export default function NetworkForm() {
   const handleIpChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     const partial = isIpPartiallyValid(v);
-    setIp((prev) => ({
-      ...prev,
-      value: v,
-      error: v && !partial ? "Некорректный формат IP-адреса" : null,
-    }));
+    const full = isIpValid(v);
+    setIp((prev) => {
+      let error: string | null = null;
+      if (v && !partial && !full) {
+        error = "Некорректный формат IP-адреса";
+      }
+      return { ...prev, value: v, error };
+    });
   }, []);
 
   const handleIpBlur = useCallback(() => {
@@ -48,11 +51,14 @@ export default function NetworkForm() {
   const handleMacChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     const partial = isMacPartiallyValid(v);
-    setMac((prev) => ({
-      ...prev,
-      value: v,
-      error: v && !partial ? "Некорректный формат MAC-адреса" : null,
-    }));
+    const full = isMacValid(v);
+    setMac((prev) => {
+      let error: string | null = null;
+      if (v && !partial && !full) {
+        error = "Некорректный формат MAC-адреса";
+      }
+      return { ...prev, value: v, error };
+    });
   }, []);
 
   const handleMacBlur = useCallback(() => {

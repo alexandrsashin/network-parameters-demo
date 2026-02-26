@@ -35,8 +35,10 @@ const IPV6_FULL =
   `|::` +
   `)`;
 
-/** Частичный IPv6: разрешаем набираемые сегменты вроде "2001:", "fe80::1" */
-const IPV6_PARTIAL = `[0-9a-fA-F:]{1,39}`;
+/** Частичный IPv6: разрешаем набираемые сегменты вроде "2001:", "fe80::1",
+ *  но требуем наличие хотя бы одного двоеточия, чтобы отсечь строки вида "abc".
+ */
+const IPV6_PARTIAL = `(?=.*:)[0-9a-fA-F:]{1,39}`;
 
 // ==================== CIDR ====================
 
@@ -55,9 +57,11 @@ const IPV6_CIDR_PARTIAL = `${IPV6_PARTIAL}(/[0-9]{0,3})?`;
 const IPV4_RANGE_FULL = `${IPV4_FULL}\\s*-\\s*${IPV4_FULL}`;
 const IPV6_RANGE_FULL = `${IPV6_FULL}\\s*-\\s*${IPV6_FULL}`;
 
-/** Частичный диапазон: IP (возможно частичный) + необязательный " - IP" */
-const IPV4_RANGE_PARTIAL = `${IPV4_PARTIAL}(\\s*-\\s*${IPV4_PARTIAL})?`;
-const IPV6_RANGE_PARTIAL = `${IPV6_PARTIAL}(\\s*-\\s*${IPV6_PARTIAL})?`;
+/** Частичный диапазон: IP (возможно частичный) + необязательный " - IP",
+ *  при этом допускаем висящий дефис в конце: "192.168.1.1-".
+ */
+const IPV4_RANGE_PARTIAL = `${IPV4_PARTIAL}(\\s*-\\s*${IPV4_PARTIAL}?)?`;
+const IPV6_RANGE_PARTIAL = `${IPV6_PARTIAL}(\\s*-\\s*${IPV6_PARTIAL}?)?`;
 
 // ==================== Единые (single token) ====================
 
@@ -86,6 +90,7 @@ const PARTIAL_LIST = `^\\s*${SINGLE_PARTIAL}(\\s*,\\s*${SINGLE_PARTIAL})*(\\s*,\
 
 const reIpFull = new RegExp(FULL_LIST);
 const reIpPartial = new RegExp(PARTIAL_LIST);
+const reIpv4FullOnly = new RegExp(`^${IPV4_FULL}$`);
 
 /**
  * Проверяет, является ли строка корректным *полным* IP-значением
@@ -101,41 +106,131 @@ export function isIpValid(value: string): boolean {
  * (пока пользователь печатает).
  */
 export function isIpPartiallyValid(value: string): boolean {
-  if (!value.trim()) return true;
-  return reIpPartial.test(value);
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+
+  // Не считаем валидным частичным вводом, если в любом из IP-токенов
+  // (включая элементы диапазона и списка) есть 4 полных октета и лишняя
+  // точка в конце: "33.33.33.33.", "33.33.33.33-22.22.22.22." и т.п.
+  const items = value.split(",");
+  for (const item of items) {
+    const rangePart = item.split("-");
+    for (const part of rangePart) {
+      const t = part.trim();
+      if (!t) continue;
+      if (t.endsWith(".")) {
+        const prefix = t.slice(0, -1).trim();
+        if (reIpv4FullOnly.test(prefix)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  // Базовая проверка по regex
+  if (reIpPartial.test(value)) return true;
+
+  // Дополнительно допускаем случай, когда пользователь набрал IP и поставил
+  // висящий дефис для диапазона: "192.168.1.1-".
+  const noRightSpaces = value.replace(/\s+$/, "");
+  if (noRightSpaces.endsWith("-")) {
+    const prefix = noRightSpaces.slice(0, -1);
+    if (prefix && reIpPartial.test(prefix)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ==================== MAC ====================
 
-/** Полный MAC: XX-XX-XX-XX-XX-XX (дефис-разделитель) */
-const MAC_SEP = `-`;
-const HEX2 = `[0-9a-fA-F]{2}`;
-const MAC_FULL = `${HEX2}(${MAC_SEP}${HEX2}){5}`;
+const HEX2_RE = /^[0-9a-fA-F]{2}$/;
+const HEX1_2_RE = /^[0-9a-fA-F]{1,2}$/;
 
-/** Частичный MAC: допускаем неполный ввод, например "AA", "AA-B", "AA-BB-" */
-const MAC_PARTIAL = `[0-9a-fA-F]{1,2}(${MAC_SEP}[0-9a-fA-F]{0,2}){0,5}`;
+/** Полный одиночный MAC: XX-XX-XX-XX-XX-XX */
+function isSingleMacFull(token: string): boolean {
+  const t = token.trim();
+  if (!t) return false;
 
-/** Список MAC через запятую — полный */
-const MAC_FULL_LIST = `^\\s*${MAC_FULL}(\\s*,\\s*${MAC_FULL})*\\s*$`;
+  const parts = t.split("-");
+  if (parts.length !== 6) return false;
 
-/** Список MAC через запятую — частичный (при вводе) */
-const MAC_PARTIAL_LIST = `^\\s*${MAC_PARTIAL}(\\s*,\\s*${MAC_PARTIAL})*(\\s*,\\s*)?\\s*$`;
+  return parts.every((p) => HEX2_RE.test(p));
+}
 
-const reMacFull = new RegExp(MAC_FULL_LIST);
-const reMacPartial = new RegExp(MAC_PARTIAL_LIST);
+/** Частичный одиночный MAC при вводе.
+ *  Допускаем:
+ *  - 1–6 сегментов,
+ *  - каждый сегмент 1–2 hex-символа,
+ *  - последний сегмент может быть пустым, если пользователь только что ввёл '-'.
+ */
+function isSingleMacPartial(token: string): boolean {
+  const t = token.trim();
+  if (!t) return true; // пустой токен внутри списка для последнего элемента обрабатываем отдельно
+
+  const parts = t.split("-");
+  if (parts.length > 6) return false;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+
+    // Разрешаем пустой последний сегмент: "AA-BB-" и т.п.
+    if (!part) {
+      if (i !== parts.length - 1) return false;
+      continue;
+    }
+
+    if (!HEX1_2_RE.test(part)) return false;
+  }
+
+  return true;
+}
 
 /**
  * Полная валидация MAC (при сабмите).
+ * Все элементы списка через запятую должны быть полными MAC.
  */
 export function isMacValid(value: string): boolean {
   if (!value.trim()) return true;
-  return reMacFull.test(value);
+
+  const items = value.split(",");
+
+  // Отклоняем пустые элементы (в т.ч. trailing comma)
+  return items.every((raw) => {
+    const token = raw.trim();
+    if (!token) return false;
+    return isSingleMacFull(token);
+  });
 }
 
 /**
  * Частичная валидация MAC (при вводе).
+ * Все элементы до последнего — полные MAC,
+ * последний — может быть частичным (пользователь его набирает).
+ * Разрешаем завершающую запятую и пробелы после неё.
  */
 export function isMacPartiallyValid(value: string): boolean {
   if (!value.trim()) return true;
-  return reMacPartial.test(value);
+
+  const items = value.split(",");
+  const lastIndex = items.length - 1;
+
+  for (let i = 0; i < items.length; i++) {
+    const raw = items[i];
+    const token = raw.trim();
+
+    // Последний пустой элемент: trailing comma ("AA-..-FF," или с пробелом) — ок
+    if (i === lastIndex && !token) {
+      return true;
+    }
+
+    if (i < lastIndex) {
+      if (!isSingleMacFull(token)) return false;
+    } else {
+      if (!isSingleMacPartial(token)) return false;
+    }
+  }
+
+  return true;
 }
