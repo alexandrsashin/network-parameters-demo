@@ -1,0 +1,108 @@
+.network-form {
+  max-width: 520px;
+  margin: 2rem auto;
+  padding: 2rem;
+  border-radius: 12px;
+  background: #1e1e2e;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  text-align: left;
+}
+
+.network-form h2 {
+  margin: 0 0 1.5rem;
+  text-align: center;
+  font-size: 1.5rem;
+}
+
+/* ---------- field ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+}
+
+.field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.field input {
+  padding: 0.6em 0.75em;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #2a2a3c;
+  color: inherit;
+  font-size: 0.95rem;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  transition: border-color 0.2s;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: #646cff;
+  box-shadow: 0 0 0 3px rgba(100, 108, 255, 0.25);
+}
+
+/* Error state */
+.field--error input {
+  border-color: #f44336;
+}
+
+.field--error input:focus {
+  box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.25);
+}
+
+.field__error {
+  color: #f44336;
+  font-size: 0.8rem;
+}
+
+.field__hint {
+  color: #888;
+  font-size: 0.75rem;
+}
+
+/* ---------- button ---------- */
+
+.network-form button[type="submit"] {
+  width: 100%;
+  padding: 0.7em;
+  border: none;
+  border-radius: 8px;
+  background: #646cff;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.network-form button[type="submit"]:hover {
+  background: #535bf2;
+}
+
+/* ---------- success ---------- */
+
+.success {
+  margin-top: 1rem;
+  text-align: center;
+  color: #4caf50;
+  font-weight: 600;
+}
+
+/* ---------- light theme ---------- */
+
+@media (prefers-color-scheme: light) {
+  .network-form {
+    background: #ffffff;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  }
+
+  .field input {
+    background: #f5f5f7;
+    border-color: #ccc;
+    color: #213547;
+  }
+}
